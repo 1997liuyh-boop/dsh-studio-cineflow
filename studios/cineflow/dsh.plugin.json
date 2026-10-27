@@ -1,0 +1,14 @@
+{
+  "name": "dsh-studio-cineflow",
+  "version": "0.2.0",
+  "description": "CineFlow：电影节目发现、片源管理、播放续播与局域网投屏",
+  "entry": {
+    "name": "dsh-studio-cineflow",
+    "inject": [
+      "studioProjects"
+    ]
+  },
+  "client": {
+    "platform": "web"
+  }
+}

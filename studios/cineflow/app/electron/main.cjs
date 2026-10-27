@@ -1,0 +1,3429 @@
+const { app, BrowserWindow, ipcMain, shell, session, screen } = require('electron');
+const studioBridge = process.env.DSH_STUDIO_CINEFLOW_DATA ? require('./studio-bridge.cjs').install({ app, ipcMain, dataDirectory: process.env.DSH_STUDIO_CINEFLOW_DATA, port: Number(process.env.DSH_STUDIO_CINEFLOW_PORT || 33105) }) : null;
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const http = require('node:http');
+const path = require('node:path');
+const { Readable } = require('node:stream');
+const { createDohResolver } = require('./doh.cjs');
+const { createMetaServer } = require('./meta-server.cjs');
+const { createPlaybackProxyGuard } = require('./proxy-monitor.cjs');
+const { filterAdsFromM3u8 } = require('./ad-filter.cjs');
+const { createCastController } = require('./cast.cjs'); // v3.4.0 投屏（纯增量模块）
+const { cleanTitleQuery, rankTitleResults } = require('./studio-title-search.cjs');
+
+try {
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+  app.commandLine.appendSwitch('enable-zero-copy');
+} catch {
+  // Hardware acceleration hints are best-effort.
+}
+
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+const DEFAULT_LANGUAGE = 'zh-CN';
+const DEFAULT_REGION = 'CN';
+const TMDB_TIMEOUT_MS = Number(process.env.CINEFLOW_TMDB_TIMEOUT_MS || 10000);
+const TMDB_CACHE_TTL_MS = Number(process.env.CINEFLOW_TMDB_CACHE_TTL_MS || 5 * 60 * 1000);
+const TMDB_CACHE_MAX = 220;
+const SEARCH_ENRICH_TIMEOUT_MS = Number(process.env.CINEFLOW_SEARCH_ENRICH_TIMEOUT_MS || 1300);
+const INITIAL_SOFT_TIMEOUT_MS = Number(process.env.CINEFLOW_INITIAL_SOFT_TIMEOUT_MS || 2600);
+const NORMAL_WINDOW_RADIUS = 34;
+const ENABLE_NATIVE_WINDOW_SHAPE = process.env.CINEFLOW_NATIVE_WINDOW_SHAPE === '1';
+const RESOURCE_TIMEOUT_MS = Number(process.env.CINEFLOW_RESOURCE_TIMEOUT_MS || 6500);
+const RESOURCE_CACHE_TTL_MS = Number(process.env.CINEFLOW_RESOURCE_CACHE_TTL_MS || 10 * 60 * 1000);
+const RESOURCE_CACHE_MAX = 420;
+const MEDIA_PROXY_TIMEOUT_MS = Number(process.env.CINEFLOW_MEDIA_PROXY_TIMEOUT_MS || 12000);
+const MEDIA_RESOLVE_TIMEOUT_MS = Number(process.env.CINEFLOW_MEDIA_RESOLVE_TIMEOUT_MS || 8500);
+const MEDIA_RESOLVE_CACHE_TTL_MS = Number(process.env.CINEFLOW_MEDIA_RESOLVE_CACHE_TTL_MS || 5 * 60 * 1000);
+const MEDIA_PROXY_TOKEN = crypto.randomBytes(18).toString('hex');
+const PLAYABLE_MEDIA_EXTENSION_RE = /\.(?:m3u8|mpd|mp4|m4v|webm|ogv|ogg|flv|ts|m2ts|mts|mov|mkv|avi|mpeg|mpg|3gp|f4v)(?:$|[?#])/i;
+const NATIVE_MEDIA_EXTENSION_RE = /\.(?:mp4|m4v|webm|ogv|ogg|mov|mkv|avi|mpeg|mpg|3gp|f4v)(?:$|[?#])/i;
+const MEDIA_PAGE_HINT_RE = /\/(?:share|play|player|embed|vodplay|video)\//i;
+
+const RESOURCE_MODES = {
+  stable: { label: '稳定优先', description: '优先查询响应较快、结果较干净的资源源。' },
+  movie: { label: '电影片库优先', description: '偏向电影片库，减少综艺/解说干扰。' },
+  full: { label: '全部来源', description: '轮询更多来源，发现率更高但耗时稍长。' },
+  off: { label: '关闭资源查找', description: '介绍页底部不自动查找播放资源。' }
+};
+
+const PLAYBACK_TRANSPORT_MODES = {
+  auto: { label: '自动判断（推荐）', description: '直链资源直接播放，HLS / DASH / FLV 仅在必要时使用本地代理。' },
+  direct: { label: '直连优先', description: '尽量跳过本地媒体代理，适合支持 CORS 的资源。' },
+  proxy: { label: '本地代理优先', description: '始终通过本地媒体代理播放，兼容性最好。' }
+};
+
+const RESOURCE_SOURCES = [
+  ...require('./studio-sources.cjs').catalog.sources,
+  {
+    key: 'dyttzy',
+    name: '电影天堂',
+    api: 'http://caiji.dyttzyapi.com/api.php/provide/vod',
+    modes: ['stable', 'movie', 'full']
+  },
+  {
+    key: 'ffzy',
+    name: '非凡资源',
+    api: 'http://ffzy5.tv/api.php/provide/vod',
+    modes: ['stable', 'movie', 'full']
+  },
+  {
+    key: 'zy360',
+    name: '360资源',
+    api: 'https://360zy.com/api.php/provide/vod',
+    modes: ['stable', 'movie', 'full']
+  },
+  {
+    key: 'zuid',
+    name: '最大资源',
+    api: 'https://api.zuidapi.com/api.php/provide/vod',
+    modes: ['movie', 'full']
+  },
+  {
+    key: 'wujin',
+    name: '无尽资源',
+    api: 'https://api.wujinapi.me/api.php/provide/vod',
+    modes: ['stable', 'movie', 'full']
+  },
+  {
+    key: 'bfzy',
+    name: '暴风资源',
+    api: 'https://bfzyapi.com/api.php/provide/vod',
+    modes: ['full']
+  },
+  {
+    key: 'lzi',
+    name: '量子资源',
+    api: 'https://cj.lziapi.com/api.php/provide/vod',
+    modes: ['full']
+  },
+  {
+    key: 'ruyi',
+    name: '如意资源',
+    api: 'https://cj.rycjapi.com/api.php/provide/vod',
+    modes: ['stable', 'movie', 'full']
+  }
+];
+
+let mainWindow;
+let windowMode = 'normal';
+let normalWindowBounds = null;
+let windowAnimationTimer = null;
+let islandDragOffset = null;
+let currentIslandHeight = 72;
+let dockedEdge = null;
+let appliedProxyKey = null;
+let appliedProxyResult = null;
+let proxyApplyPromise = null;
+let settingsCache = null;
+let settingsCacheMtimeMs = -1;
+let envFileCache = null;
+let envFileCacheMtimeMs = -1;
+let mediaProxyServer = null;
+let mediaProxyPort = 0;
+let mediaProxyStarting = null;
+const tmdbResponseCache = new Map();
+const tmdbInFlight = new Map();
+const resourceResponseCache = new Map();
+const mediaResolveCache = new Map();
+let dohResolver = null;
+let metaServer = null;
+let playbackProxyGuard = null;
+
+function initNetworkAcceleration() {
+  try {
+    dohResolver = createDohResolver({
+      cacheDir: path.join(app.getPath('userData'), 'cineflow-meta')
+    });
+    metaServer = createMetaServer({
+      app,
+      session,
+      doh: dohResolver,
+      getProxySetting,
+      readSettings,
+      getCredential
+    });
+    metaServer.install().catch(() => {});
+    // v3.4.0：启动即探测 DoH 端点在当前网络下是否可达，并顺带预热海报域名解析；
+    // 不可达时 meta-server / proxy-monitor 会自动放弃接管，回退原生网络栈。
+    setTimeout(() => {
+      try {
+        dohResolver?.ping?.();
+      } catch {
+        // best-effort
+      }
+    }, 800);
+    playbackProxyGuard = createPlaybackProxyGuard({
+      session,
+      doh: dohResolver,
+      getProxySetting,
+      readSettings,
+      writeSettings,
+      mediaHelpers: {
+        isLikelyM3u8Response,
+        isLikelyMpdResponse,
+        rewriteM3u8Manifest,
+        rewriteMpdManifest,
+        mediaProxyHeaders
+      },
+      sendToRenderer: (channel, payload) => {
+        try {
+          mainWindow?.webContents?.send(channel, payload);
+        } catch {
+          // window may be closed
+        }
+      }
+    });
+    playbackProxyGuard.start();
+  } catch {
+    // network acceleration is best-effort; the original request path keeps working
+  }
+}
+
+function canUseNativeShape() {
+  return Boolean(
+    ENABLE_NATIVE_WINDOW_SHAPE
+    &&
+    mainWindow
+    && typeof mainWindow.setShape === 'function'
+    && ['win32', 'linux'].includes(process.platform)
+  );
+}
+
+function roundedRectShape(x, y, width, height, radius, step = 1) {
+  const rects = [];
+  const safeWidth = Math.max(1, Math.round(width));
+  const safeHeight = Math.max(1, Math.round(height));
+  const safeRadius = Math.max(0, Math.min(Math.round(radius), Math.floor(safeWidth / 2), Math.floor(safeHeight / 2)));
+
+  for (let row = 0; row < safeHeight; row += step) {
+    const sliceHeight = Math.min(step, safeHeight - row);
+    const cy = row + sliceHeight / 2;
+    let inset = 0;
+
+    if (safeRadius > 0 && cy < safeRadius) {
+      const dy = safeRadius - cy;
+      inset = safeRadius - Math.sqrt(Math.max(0, safeRadius * safeRadius - dy * dy));
+    } else if (safeRadius > 0 && cy > safeHeight - safeRadius) {
+      const dy = cy - (safeHeight - safeRadius);
+      inset = safeRadius - Math.sqrt(Math.max(0, safeRadius * safeRadius - dy * dy));
+    }
+
+    const left = Math.round(x + inset);
+    const rectWidth = Math.max(1, Math.round(safeWidth - inset * 2));
+    rects.push({
+      x: left,
+      y: Math.round(y + row),
+      width: rectWidth,
+      height: sliceHeight
+    });
+  }
+
+  return rects;
+}
+
+function applyWindowShape(mode = windowMode, bounds = null) {
+  if (!canUseNativeShape()) return;
+  const currentBounds = bounds || mainWindow.getBounds();
+
+  try {
+    if (mode === 'island') {
+      mainWindow.setShape(roundedRectShape(14, 14, currentBounds.width - 28, currentBounds.height - 28, 28));
+      return;
+    }
+
+    if (mode === 'island-expanded') {
+      mainWindow.setShape(roundedRectShape(18, 18, currentBounds.width - 36, currentBounds.height - 36, 30));
+      return;
+    }
+
+
+    if (mode === 'island-docked') {
+      mainWindow.setShape(roundedRectShape(0, 0, currentBounds.width, currentBounds.height, 22));
+      return;
+    }
+
+    mainWindow.setShape(roundedRectShape(0, 0, currentBounds.width, currentBounds.height, NORMAL_WINDOW_RADIUS));
+  } catch {
+    // setShape is experimental; if it is unavailable or rejected on a platform,
+    // keep the transparent-window CSS fallback instead of interrupting the app.
+  }
+}
+
+function getProjectRoot() {
+  if (app.isPackaged) {
+    return process.resourcesPath;
+  }
+  return path.resolve(__dirname, '..');
+}
+
+function animateWindowBounds(targetBounds, duration = 300) {
+  if (!mainWindow) return;
+  clearInterval(windowAnimationTimer);
+  const startBounds = mainWindow.getBounds();
+  let lastBounds = { ...startBounds };
+  const startedAt = Date.now();
+  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  const sameBounds = (a, b) => (
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height
+  );
+  windowAnimationTimer = setInterval(() => {
+    if (!mainWindow) {
+      clearInterval(windowAnimationTimer);
+      return;
+    }
+    const progress = Math.min(1, (Date.now() - startedAt) / duration);
+    const eased = ease(progress);
+    const nextBounds = {};
+    for (const key of ['x', 'y', 'width', 'height']) {
+      nextBounds[key] = Math.round(startBounds[key] + (targetBounds[key] - startBounds[key]) * eased);
+    }
+    if (!sameBounds(nextBounds, lastBounds)) {
+      mainWindow.setBounds(nextBounds, false);
+      applyWindowShape(windowMode, nextBounds);
+      lastBounds = nextBounds;
+    }
+    if (progress >= 1) {
+      clearInterval(windowAnimationTimer);
+      windowAnimationTimer = null;
+      if (!sameBounds(targetBounds, lastBounds)) {
+        mainWindow.setBounds(targetBounds, false);
+      }
+      applyWindowShape(windowMode, targetBounds);
+    }
+  }, 16);
+}
+
+function stopWindowAnimation() {
+  if (windowAnimationTimer) {
+    clearInterval(windowAnimationTimer);
+    windowAnimationTimer = null;
+  }
+}
+
+function getIslandDragLockSize(bounds) {
+  if (windowMode === 'island') {
+    const target = getIslandBounds(currentIslandHeight || 72);
+    return { width: target.width, height: target.height };
+  }
+
+  if (windowMode === 'island-expanded') {
+    const target = getIslandBounds(currentIslandHeight || 320);
+    return { width: target.width, height: target.height };
+  }
+
+  return { width: bounds.width, height: bounds.height };
+}
+
+function getIslandBounds(height = 72) {
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const work = display.workArea;
+  const width = height <= 92 ? 460 : Math.min(640, Math.max(500, Math.round(work.width * 0.34)));
+  const padding = height <= 92 ? 14 : 18;
+  return {
+    width: width + padding * 2,
+    height: height + padding * 2,
+    x: Math.round(work.x + (work.width - width) / 2) - padding,
+    y: work.y + 18 - padding
+  };
+}
+
+function clampWindowToWorkArea(x, y, width, height) {
+  const cursor = screen.getCursorScreenPoint();
+  const work = screen.getDisplayNearestPoint(cursor).workArea;
+  return {
+    x: Math.round(Math.min(Math.max(x, work.x), Math.max(work.x, work.x + work.width - width))),
+    y: Math.round(Math.min(Math.max(y, work.y), Math.max(work.y, work.y + work.height - height)))
+  };
+}
+
+function getNearestDockEdge(bounds) {
+  const center = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2
+  };
+  const work = screen.getDisplayNearestPoint(center).workArea;
+  const threshold = 34;
+  const distances = [
+    { edge: 'left', value: Math.abs(bounds.x - work.x) },
+    { edge: 'right', value: Math.abs(work.x + work.width - (bounds.x + bounds.width)) },
+    { edge: 'top', value: Math.abs(bounds.y - work.y) },
+    { edge: 'bottom', value: Math.abs(work.y + work.height - (bounds.y + bounds.height)) }
+  ].sort((a, b) => a.value - b.value);
+  return distances[0].value <= threshold ? distances[0].edge : null;
+}
+
+function getDockedBounds(edge, sourceBounds = null) {
+  const cursor = screen.getCursorScreenPoint();
+  const sourceCenter = sourceBounds
+    ? { x: sourceBounds.x + sourceBounds.width / 2, y: sourceBounds.y + sourceBounds.height / 2 }
+    : cursor;
+  const work = screen.getDisplayNearestPoint(sourceCenter).workArea;
+  const isSide = edge === 'left' || edge === 'right';
+  const width = isSide ? 46 : 154;
+  const height = isSide ? 126 : 46;
+  const x = edge === 'left'
+    ? work.x
+    : edge === 'right'
+      ? work.x + work.width - width
+      : Math.round(Math.min(Math.max(sourceCenter.x - width / 2, work.x + 10), work.x + work.width - width - 10));
+  const y = edge === 'top'
+    ? work.y
+    : edge === 'bottom'
+      ? work.y + work.height - height
+      : Math.round(Math.min(Math.max(sourceCenter.y - height / 2, work.y + 10), work.y + work.height - height - 10));
+
+  return { x, y, width, height };
+}
+
+function getUndockedIslandBounds(edge = dockedEdge || 'top', height = 72) {
+  const dockBounds = mainWindow?.getBounds();
+  const sourceCenter = dockBounds
+    ? { x: dockBounds.x + dockBounds.width / 2, y: dockBounds.y + dockBounds.height / 2 }
+    : screen.getCursorScreenPoint();
+  const work = screen.getDisplayNearestPoint(sourceCenter).workArea;
+  const width = 460;
+  const padding = 14;
+  const fullWidth = width + padding * 2;
+  const fullHeight = height + padding * 2;
+  const xByCenter = Math.round(sourceCenter.x - fullWidth / 2);
+  const yByCenter = Math.round(sourceCenter.y - fullHeight / 2);
+
+  if (edge === 'left') {
+    return {
+      width: fullWidth,
+      height: fullHeight,
+      x: work.x + 18,
+      y: Math.round(Math.min(Math.max(yByCenter, work.y + 18), work.y + work.height - fullHeight - 18))
+    };
+  }
+  if (edge === 'right') {
+    return {
+      width: fullWidth,
+      height: fullHeight,
+      x: work.x + work.width - fullWidth - 18,
+      y: Math.round(Math.min(Math.max(yByCenter, work.y + 18), work.y + work.height - fullHeight - 18))
+    };
+  }
+  if (edge === 'bottom') {
+    return {
+      width: fullWidth,
+      height: fullHeight,
+      x: Math.round(Math.min(Math.max(xByCenter, work.x + 18), work.x + work.width - fullWidth - 18)),
+      y: work.y + work.height - fullHeight - 18
+    };
+  }
+  return {
+    width: fullWidth,
+    height: fullHeight,
+    x: Math.round(Math.min(Math.max(xByCenter, work.x + 18), work.x + work.width - fullWidth - 18)),
+    y: work.y + 18
+  };
+}
+
+function enterIslandMode(height = 72) {
+  if (!mainWindow) return false;
+  if (windowMode === 'normal') {
+    normalWindowBounds = mainWindow.getBounds();
+  }
+  currentIslandHeight = Number(height) || 72;
+  const wasDocked = windowMode === 'island-docked';
+  const edge = dockedEdge;
+  windowMode = 'island';
+  islandDragOffset = null;
+  mainWindow.setMinimumSize(320, 64);
+  mainWindow.setMaximumSize(10000, 10000);
+  mainWindow.setAlwaysOnTop(true, 'floating');
+  mainWindow.setHasShadow(false);
+  mainWindow.setSkipTaskbar(false);
+  mainWindow.setResizable(false);
+  mainWindow.webContents.send('window:mode', { mode: 'island', height });
+  applyWindowShape('island');
+  animateWindowBounds(wasDocked ? getUndockedIslandBounds(edge, height) : getIslandBounds(height), 360);
+  dockedEdge = null;
+  return true;
+}
+
+function expandIslandMode(height = 320) {
+  if (!mainWindow) return false;
+  if (windowMode === 'island-docked') enterIslandMode(72);
+  if (windowMode !== 'island') enterIslandMode(72);
+  currentIslandHeight = Number(height) || 320;
+  windowMode = 'island-expanded';
+  mainWindow.webContents.send('window:mode', { mode: 'island-expanded', height });
+  applyWindowShape('island-expanded');
+  animateWindowBounds(getIslandBounds(height), 320);
+  return true;
+}
+
+function restoreNormalMode() {
+  if (!mainWindow) return false;
+  windowMode = 'normal';
+  islandDragOffset = null;
+  dockedEdge = null;
+  const target = normalWindowBounds || { width: 1280, height: 820 };
+  mainWindow.setAlwaysOnTop(false);
+  mainWindow.setHasShadow(true);
+  mainWindow.setResizable(true);
+  mainWindow.setMinimumSize(1040, 680);
+  mainWindow.setMaximumSize(10000, 10000);
+  mainWindow.webContents.send('window:mode', { mode: 'normal' });
+  applyWindowShape('normal');
+  stopWindowAnimation();
+  mainWindow.setBounds(target, false);
+  applyWindowShape('normal', target);
+  return true;
+}
+
+function enterIslandDockedMode(edge, sourceBounds = null) {
+  if (!mainWindow || !edge) return false;
+  if (windowMode === 'normal') normalWindowBounds = mainWindow.getBounds();
+  dockedEdge = edge;
+  windowMode = 'island-docked';
+  islandDragOffset = null;
+  mainWindow.setMinimumSize(36, 36);
+  mainWindow.setMaximumSize(10000, 10000);
+  mainWindow.setAlwaysOnTop(true, 'floating');
+  mainWindow.setHasShadow(false);
+  mainWindow.setResizable(false);
+  mainWindow.webContents.send('window:mode', { mode: 'island-docked', edge });
+  const bounds = getDockedBounds(edge, sourceBounds || mainWindow.getBounds());
+  applyWindowShape('island-docked', bounds);
+  animateWindowBounds(bounds, 260);
+  return { mode: 'island-docked', edge };
+}
+
+function beginIslandDragMode(payload = {}) {
+  if (!mainWindow) return false;
+  if (!['island', 'island-expanded', 'island-docked'].includes(windowMode)) return false;
+
+  stopWindowAnimation();
+
+  const bounds = mainWindow.getBounds();
+  const lockedSize = getIslandDragLockSize(bounds);
+  const point = {
+    x: Number(payload.screenX ?? payload.x ?? screen.getCursorScreenPoint().x),
+    y: Number(payload.screenY ?? payload.y ?? screen.getCursorScreenPoint().y)
+  };
+
+  if ((bounds.width !== lockedSize.width || bounds.height !== lockedSize.height)
+    && Number.isFinite(lockedSize.width)
+    && Number.isFinite(lockedSize.height)) {
+    const lockedPosition = clampWindowToWorkArea(bounds.x, bounds.y, lockedSize.width, lockedSize.height);
+    mainWindow.setBounds({
+      x: lockedPosition.x,
+      y: lockedPosition.y,
+      width: lockedSize.width,
+      height: lockedSize.height
+    }, false);
+  }
+
+  const lockedBounds = mainWindow.getBounds();
+  islandDragOffset = {
+    x: Math.round(Math.min(Math.max(point.x - lockedBounds.x, 18), Math.max(18, lockedBounds.width - 18))),
+    y: Math.round(Math.min(Math.max(point.y - lockedBounds.y, 18), Math.max(18, lockedBounds.height - 18))),
+    width: lockedBounds.width,
+    height: lockedBounds.height
+  };
+  return true;
+}
+
+function moveIslandDragMode(payload = {}) {
+  if (!mainWindow || !islandDragOffset) return false;
+
+  const point = {
+    x: Number(payload.screenX ?? payload.x ?? screen.getCursorScreenPoint().x),
+    y: Number(payload.screenY ?? payload.y ?? screen.getCursorScreenPoint().y)
+  };
+  const bounds = mainWindow.getBounds();
+  const lockedWidth = Math.max(1, Math.round(islandDragOffset.width || bounds.width));
+  const lockedHeight = Math.max(1, Math.round(islandDragOffset.height || bounds.height));
+  const display = screen.getDisplayNearestPoint(point).workArea;
+  const maxX = Math.max(display.x, display.x + display.width - lockedWidth);
+  const maxY = Math.max(display.y, display.y + display.height - lockedHeight);
+  const nextX = Math.round(Math.min(Math.max(point.x - islandDragOffset.x, display.x), maxX));
+  const nextY = Math.round(Math.min(Math.max(point.y - islandDragOffset.y, display.y), maxY));
+
+  if (nextX === bounds.x && nextY === bounds.y && bounds.width === lockedWidth && bounds.height === lockedHeight) {
+    return false;
+  }
+  mainWindow.setBounds({
+    x: nextX,
+    y: nextY,
+    width: lockedWidth,
+    height: lockedHeight
+  }, false);
+  return true;
+}
+
+function endIslandDragMode(shouldDock = true, payload = {}) {
+  if (!mainWindow) return null;
+  const hadDrag = Boolean(islandDragOffset);
+  if (hadDrag && shouldDock) {
+    moveIslandDragMode(payload);
+  }
+  islandDragOffset = null;
+
+  if (!hadDrag) {
+    return { mode: windowMode, edge: dockedEdge || null };
+  }
+
+  if (shouldDock) {
+    const edge = getNearestDockEdge(mainWindow.getBounds());
+    if (edge) {
+      return enterIslandDockedMode(edge, mainWindow.getBounds());
+    }
+  }
+
+  return {
+    mode: windowMode,
+    edge: dockedEdge || null,
+    x: Number(payload.screenX ?? payload.x ?? 0),
+    y: Number(payload.screenY ?? payload.y ?? 0)
+  };
+}
+
+function readEnvFile() {
+  const envPath = path.join(getProjectRoot(), '.env');
+  try {
+    const stat = fs.statSync(envPath);
+    if (envFileCache && envFileCacheMtimeMs === stat.mtimeMs) {
+      return envFileCache;
+    }
+    const env = {};
+    const text = fs.readFileSync(envPath, 'utf8');
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const equalIndex = trimmed.indexOf('=');
+      if (equalIndex === -1) continue;
+      const key = trimmed.slice(0, equalIndex).trim();
+      let value = trimmed.slice(equalIndex + 1).trim();
+      value = value.replace(/^['"]|['"]$/g, '');
+      if (key) env[key] = value;
+    }
+    envFileCache = env;
+    envFileCacheMtimeMs = stat.mtimeMs;
+    return envFileCache;
+  } catch {
+    envFileCache = {};
+    envFileCacheMtimeMs = -1;
+    return envFileCache;
+  }
+}
+
+function settingsPath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function readSettings() {
+  try {
+    const file = settingsPath();
+    const stat = fs.statSync(file);
+    if (settingsCache && settingsCacheMtimeMs === stat.mtimeMs) {
+      return { ...settingsCache };
+    }
+    settingsCache = JSON.parse(fs.readFileSync(file, 'utf8'));
+    settingsCacheMtimeMs = stat.mtimeMs;
+    return { ...settingsCache };
+  } catch {
+    settingsCache = {};
+    settingsCacheMtimeMs = -1;
+    return {};
+  }
+}
+
+function writeSettings(nextSettings) {
+  const file = settingsPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(nextSettings, null, 2)}\n`, 'utf8');
+  settingsCache = { ...nextSettings };
+  try {
+    settingsCacheMtimeMs = fs.statSync(file).mtimeMs;
+  } catch {
+    settingsCacheMtimeMs = Date.now();
+  }
+}
+
+
+function normalizeProxy(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (/^(direct|system|auto_detect)$/i.test(value)) return value.toLowerCase();
+  if (/^(https?|socks4|socks5):\/\//i.test(value)) return value;
+  if (/^(127\.0\.0\.1|localhost|\d{1,3}(?:\.\d{1,3}){3}):\d{2,5}$/i.test(value)) {
+    return `http://${value}`;
+  }
+  return value;
+}
+
+function getProxySetting() {
+  const settings = readSettings();
+  const envFile = readEnvFile();
+  return normalizeProxy(
+    settings.proxy ||
+    process.env.CINEFLOW_PROXY ||
+    envFile.CINEFLOW_PROXY ||
+    process.env.HTTPS_PROXY ||
+    process.env.HTTP_PROXY ||
+    process.env.ALL_PROXY ||
+    envFile.HTTPS_PROXY ||
+    envFile.HTTP_PROXY ||
+    envFile.ALL_PROXY ||
+    'system'
+  );
+}
+
+function rememberAppliedProxy(proxy, result) {
+  appliedProxyKey = proxy;
+  appliedProxyResult = result;
+  return result;
+}
+
+async function applyProxySettingNow(options = {}) {
+  const { force = false } = options;
+  const proxy = getProxySetting();
+  const ses = session.defaultSession;
+  if (!ses) return { proxy: '', mode: 'pending' };
+  if (!force && appliedProxyKey === proxy && appliedProxyResult) {
+    return appliedProxyResult;
+  }
+
+  if (!proxy || proxy === 'system') {
+    await ses.setProxy({ mode: 'system' });
+    await ses.closeAllConnections();
+    return rememberAppliedProxy(proxy, { proxy: 'system', mode: 'system' });
+  }
+  if (proxy === 'direct') {
+    await ses.setProxy({ mode: 'direct' });
+    await ses.closeAllConnections();
+    return rememberAppliedProxy(proxy, { proxy: 'direct', mode: 'direct' });
+  }
+  if (proxy === 'auto_detect') {
+    await ses.setProxy({ mode: 'auto_detect' });
+    await ses.closeAllConnections();
+    return rememberAppliedProxy(proxy, { proxy: 'auto_detect', mode: 'auto_detect' });
+  }
+
+  let proxyRules = proxy;
+  try {
+    const parsed = new URL(proxy);
+    const protocol = parsed.protocol.replace(':', '').toLowerCase();
+    const host = parsed.host;
+    if (protocol === 'http' || protocol === 'https') {
+      proxyRules = `http=${host};https=${host}`;
+    } else if (protocol === 'socks' || protocol === 'socks4' || protocol === 'socks5') {
+      proxyRules = `${protocol}=${host}`;
+    } else {
+      proxyRules = `${protocol}=${host}`;
+    }
+  } catch {
+    proxyRules = proxy;
+  }
+  await ses.setProxy({
+    mode: 'fixed_servers',
+    proxyRules,
+    proxyBypassRules: '<local>'
+  });
+  await ses.closeAllConnections();
+  return rememberAppliedProxy(proxy, { proxy, mode: 'fixed_servers', proxyRules });
+}
+
+async function applyProxySetting(options = {}) {
+  if (proxyApplyPromise) {
+    if (!options.force) return proxyApplyPromise;
+    await proxyApplyPromise.catch(() => {});
+  }
+  proxyApplyPromise = applyProxySettingNow(options)
+    .finally(() => {
+      proxyApplyPromise = null;
+    });
+  return proxyApplyPromise;
+}
+
+function publicProxyState() {
+  const proxy = getProxySetting();
+  if (!proxy || proxy === 'system') return { configured: true, mode: 'system', value: 'system' };
+  if (proxy === 'direct') return { configured: true, mode: 'direct', value: 'direct' };
+  if (proxy === 'auto_detect') return { configured: true, mode: 'auto_detect', value: 'auto_detect' };
+  return { configured: true, mode: 'fixed_servers', value: proxy };
+}
+
+function normalizeResourceMode(mode) {
+  const value = String(mode || '').trim().toLowerCase();
+  return RESOURCE_MODES[value] ? value : 'stable';
+}
+
+function publicResourceSettings() {
+  const settings = readSettings();
+  const mode = normalizeResourceMode(settings.resourceMode);
+  const playbackMode = normalizeResourcePlaybackMode(settings.resourcePlaybackMode);
+  const resourceSources = publicResourceSourcesState();
+  return {
+    mode,
+    label: RESOURCE_MODES[mode].label,
+    description: RESOURCE_MODES[mode].description,
+    enabled: mode !== 'off',
+    revision: Number(settings.resourceConfigRevision || 0),
+    playbackMode,
+    playbackLabel: PLAYBACK_TRANSPORT_MODES[playbackMode].label,
+    playbackDescription: PLAYBACK_TRANSPORT_MODES[playbackMode].description,
+    sourceCount: resourceSources.sourceCount,
+    builtInSourceCount: resourceSources.builtInCount,
+    customSourceCount: resourceSources.customCount,
+    sources: resourceSources.sources,
+    modes: Object.entries(RESOURCE_MODES).map(([value, meta]) => ({
+      value,
+      label: meta.label,
+      description: meta.description
+    })),
+    playbackModes: Object.entries(PLAYBACK_TRANSPORT_MODES).map(([value, meta]) => ({
+      value,
+      label: meta.label,
+      description: meta.description
+    }))
+  };
+}
+
+function selectResourceSources(mode) {
+  const normalizedMode = normalizeResourceMode(mode);
+  if (normalizedMode === 'off') return [];
+  return getMergedResourceSources().filter((source) => source.enabled !== false && source.modes.includes(normalizedMode));
+}
+
+function normalizeResourcePlaybackMode(mode) {
+  const value = String(mode || '').trim().toLowerCase();
+  return PLAYBACK_TRANSPORT_MODES[value] ? value : 'auto';
+}
+
+function publicPlaybackModeState() {
+  const settings = readSettings();
+  const mode = normalizeResourcePlaybackMode(settings.resourcePlaybackMode);
+  return {
+    mode,
+    label: PLAYBACK_TRANSPORT_MODES[mode].label,
+    description: PLAYBACK_TRANSPORT_MODES[mode].description,
+    modes: Object.entries(PLAYBACK_TRANSPORT_MODES).map(([value, meta]) => ({
+      value,
+      label: meta.label,
+      description: meta.description
+    }))
+  };
+}
+
+function normalizeResourceSourceApi(raw) {
+  let value = String(raw || '').trim();
+  if (!value) return '';
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value) && /^[\w.-]+(?::\d+)?(?:[/?#]|$)/.test(value)) {
+    value = `https://${value}`;
+  }
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    return require('./studio-sources.cjs').canonicalApi(url.toString());
+  } catch {
+    return '';
+  }
+}
+
+function normalizeResourceSourceName(value, api = '', index = 0) {
+  const fallbackHost = (() => {
+    try {
+      const url = new URL(api);
+      return url.hostname.replace(/^www\./i, '') || '';
+    } catch {
+      return '';
+    }
+  })();
+  const name = String(value || '').trim() || fallbackHost || `自定义源 ${index + 1}`;
+  return name.slice(0, 80);
+}
+
+function normalizeResourceSourceModes(modes) {
+  const rawList = Array.isArray(modes)
+    ? modes
+    : String(modes || '')
+      .split(/[\s,|/]+/)
+      .filter(Boolean);
+  const normalized = rawList
+    .map((mode) => String(mode || '').trim().toLowerCase())
+    .map((mode) => (mode === 'standard' ? 'stable' : mode))
+    .filter((mode) => ['stable', 'movie', 'full'].includes(mode));
+  return normalized.length ? Array.from(new Set(normalized)) : ['stable', 'movie', 'full'];
+}
+
+function resourceSourceKey(name, api, origin = 'custom', index = 0) {
+  const hash = crypto.createHash('sha1').update(`${origin}|${api}`).digest('hex').slice(0, 10);
+  const safeName = String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24) || `source-${index + 1}`;
+  return `${origin}-${safeName}-${hash}`;
+}
+
+function normalizeResourceSourceEntry(entry, index = 0, origin = 'custom') {
+  if (!entry || typeof entry !== 'object') return null;
+  const api = normalizeResourceSourceApi(entry.api || entry.url || entry.endpoint || '');
+  if (!api) return null;
+  const name = normalizeResourceSourceName(entry.name || entry.label || entry.title, api, index);
+  return {
+    key: String(entry.key || entry.id || '').trim() || resourceSourceKey(name, api, origin, index),
+    name,
+    api,
+    modes: normalizeResourceSourceModes(entry.modes || entry.mode || entry.resourceMode),
+    enabled: entry.enabled !== false && entry.disabled !== true,
+    origin,
+    source: origin,
+    note: String(entry.note || '').trim(),
+    contentTypes: Array.isArray(entry.contentTypes) ? entry.contentTypes.filter(value => value === 'anime') : [],
+    importedAt: Number(entry.importedAt || Date.now())
+  };
+}
+
+function getCustomResourceSources(settings = readSettings()) {
+  const custom = Array.isArray(settings.customResourceSources) ? settings.customResourceSources : [];
+  return require('./studio-sources.cjs').deduplicateResourceSources(custom
+    .map((entry, index) => normalizeResourceSourceEntry(entry, index, 'custom'))
+    .filter(Boolean));
+}
+
+function getMergedResourceSources(settings = readSettings()) {
+  const merged = [];
+  const seen = new Set();
+  const pushSource = (source) => {
+    if (!source || !source.api) return;
+    const key = require('./studio-sources.cjs').resourceIdentity(source.api);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(source);
+  };
+
+  for (const source of getCustomResourceSources(settings)) {
+    pushSource(source);
+  }
+  for (const source of RESOURCE_SOURCES) {
+    pushSource(normalizeResourceSourceEntry({
+      ...source,
+      key: source.key,
+      name: source.name,
+      api: source.api,
+      modes: source.modes,
+      enabled: true
+    }, 0, 'builtin'));
+  }
+  return merged.sort((left, right) => Number(Boolean(require('./studio-sources.cjs').resourceVerification(right.api))) - Number(Boolean(require('./studio-sources.cjs').resourceVerification(left.api))));
+}
+
+function publicResourceSource(source = {}) {
+  return {
+    key: source.key || '',
+    name: source.name || '',
+    api: source.api || '',
+    modes: Array.isArray(source.modes) ? source.modes : [],
+    enabled: source.enabled !== false,
+    origin: source.origin || 'builtin',
+    note: source.note || '',
+    provider: require('./studio-sources.cjs').resourceProvider(source),
+    contentTypes: source.contentTypes || [],
+    verification: require('./studio-sources.cjs').resourceVerification(source.api),
+    probe: require('./studio-sources.cjs').resourceProbe(source.api)
+  };
+}
+
+function publicResourceSourcesState() {
+  const settings = readSettings();
+  const merged = getMergedResourceSources(settings).map(publicResourceSource);
+  const custom = merged.filter((source) => source.origin === 'custom');
+  const builtin = merged.filter((source) => source.origin !== 'custom');
+  return {
+    builtInCount: builtin.length,
+    customCount: custom.length,
+    sourceCount: merged.length,
+    sources: merged
+  };
+}
+
+function touchResourceConfig(settings = readSettings()) {
+  const previous = Number(settings.resourceConfigRevision || 0);
+  settings.resourceConfigRevision = Math.max(Date.now(), previous + 1);
+  return settings;
+}
+
+function isTvBoxSiteEntry(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!String(value.api || '').trim()) return false;
+  // TVBox 站点的决定性特征是 type 字段；普通 {name, api} 条目没有 type，不能误判
+  return value.type !== undefined;
+}
+
+function tvBoxSiteToSourceEntry(site) {
+  return require('./studio-sources.cjs').tvBoxSiteToSourceEntry(site);
+}
+
+function extractTvBoxSites(raw) {
+  const sites = Array.isArray(raw) ? raw : raw?.sites;
+  if (!Array.isArray(sites) || !sites.length) return null;
+  // 至少有一条像 TVBox 站点才按 TVBox 解析，避免误伤普通数组
+  if (!sites.some(isTvBoxSiteEntry)) return null;
+  const entries = sites.map(tvBoxSiteToSourceEntry).filter(Boolean);
+  if (!entries.length) {
+    const error = new Error(`TVBox 配置包含 ${sites.length} 个站点，但没有兼容的 JSON/XML 采集接口；CSP、JAR 和脚本线路需要专用引擎。现有片源未更改。`);
+    error.code = 'INVALID_RESOURCE_SOURCE_CONFIG';
+    throw error;
+  }
+  return entries;
+}
+
+function normalizeResourceSourcesPayload(raw) {
+  if (raw && typeof raw === 'object') {
+    if (!Array.isArray(raw) && (Array.isArray(raw.urls) || Array.isArray(raw.items))) throw new Error('请导入 TVBox 单仓配置（例如 official.json），多仓列表不能直接作为采集接口。');
+    const tvBoxEntries = extractTvBoxSites(raw);
+    if (tvBoxEntries) return tvBoxEntries;
+    if (!Array.isArray(raw)) {
+      if (Array.isArray(raw.sources)) return raw.sources;
+      if (raw.name || raw.api || raw.url || raw.endpoint) return [raw];
+    }
+  }
+  if (Array.isArray(raw)) return raw;
+
+  const text = String(raw || '').replace(/^\uFEFF/, '').trim();
+  if (!text) return [];
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !line.startsWith('//'))
+    .map((line) => {
+      if (/^[\[{]/.test(line)) {
+        try {
+          const parsed = JSON.parse(line);
+          if (isTvBoxSiteEntry(parsed)) return tvBoxSiteToSourceEntry(parsed);
+          return parsed;
+        } catch {
+          return null;
+        }
+      }
+
+      const parts = line.includes('|')
+        ? line.split('|')
+        : line.includes('\t')
+          ? line.split('\t')
+          : line.split(/\s{2,}/);
+      if (!parts.length) return null;
+      if (parts.length === 1) {
+        const api = normalizeResourceSourceApi(parts[0]);
+        return api ? { api } : null;
+      }
+      const [name, api, modes, note] = parts.map((part) => String(part || '').trim());
+      const normalizedApi = normalizeResourceSourceApi(api || name);
+      if (!normalizedApi) return null;
+      return {
+        name: api ? name : '',
+        api: normalizedApi,
+        modes: modes || '',
+        note: note || ''
+      };
+    })
+    .filter(Boolean);
+}
+
+async function fetchRemoteResourceSources(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(RESOURCE_TIMEOUT_MS, 7000));
+  try {
+    const response = await session.defaultSession.fetch(url, {
+      signal: controller.signal,
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0'
+      }
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(`外部源拉取失败：${response.status}`);
+      error.code = 'RESOURCE_SOURCE_HTTP_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function importResourceSources(raw) {
+  let payload = raw;
+  const text = String(raw || '').replace(/^\uFEFF/, '').trim();
+  if (!payload || typeof payload === 'string') {
+    if (!text) {
+      const error = new Error('请输入外部源 JSON、分行配置或源配置地址。');
+      error.code = 'INVALID_RESOURCE_SOURCE_CONFIG';
+      throw error;
+    }
+    if (/^https?:\/\//i.test(text) && !text.includes('\n')) {
+      payload = await fetchRemoteResourceSources(text);
+    } else {
+      payload = text;
+    }
+  }
+
+  let entries = [];
+  if (typeof payload === 'string') {
+    const trimmed = payload.replace(/^\uFEFF/, '').trim();
+    if (!trimmed) entries = [];
+    else {
+      let parsed;
+      try { parsed = JSON.parse(trimmed); }
+      catch {
+        entries = normalizeResourceSourcesPayload(trimmed);
+      }
+      if (parsed !== undefined) { payload = parsed; entries = normalizeResourceSourcesPayload(parsed); }
+    }
+  } else {
+    entries = normalizeResourceSourcesPayload(payload);
+  }
+
+  const normalized = entries
+    .map((entry, index) => normalizeResourceSourceEntry(entry, index, 'custom'))
+    .filter(Boolean);
+  const unique = require('./studio-sources.cjs').deduplicateResourceSources(normalized);
+  if (!unique.length) {
+    const error = new Error('未识别到有效外部源，请检查格式后重试。');
+    error.code = 'INVALID_RESOURCE_SOURCE_CONFIG';
+    throw error;
+  }
+
+  const settings = readSettings();
+  settings.customResourceSources = unique;
+  touchResourceConfig(settings);
+  writeSettings(settings);
+  resourceResponseCache.clear();
+  const sites = Array.isArray(payload?.sites) ? payload.sites : Array.isArray(payload) && payload.some(isTvBoxSiteEntry) ? payload : [];
+  return { ...publicResourceSettings(), importReport: { accepted: unique.length, skipped: sites.filter(site => !tvBoxSiteToSourceEntry(site)).length } };
+}
+
+function clearResourceSources() {
+  const settings = readSettings();
+  settings.customResourceSources = [];
+  touchResourceConfig(settings);
+  writeSettings(settings);
+  resourceResponseCache.clear();
+  return publicResourceSettings();
+}
+
+function normalizeCredential(raw) {
+  const credential = String(raw || '').trim();
+  if (!credential) return null;
+  if (credential.startsWith('eyJ')) {
+    return { type: 'readToken', value: credential };
+  }
+  return { type: 'apiKey', value: credential };
+}
+
+function getCredential() {
+  const settings = readSettings();
+  const stored = normalizeCredential(settings.tmdbCredential);
+  if (stored) return { ...stored, source: 'local-settings' };
+
+  const envFile = readEnvFile();
+  const readToken = normalizeCredential(process.env.TMDB_READ_TOKEN || envFile.TMDB_READ_TOKEN);
+  if (readToken) return { ...readToken, source: '.env' };
+
+  const apiKey = normalizeCredential(process.env.TMDB_API_KEY || envFile.TMDB_API_KEY);
+  if (apiKey) return { ...apiKey, source: '.env' };
+
+  return null;
+}
+
+function publicCredentialState() {
+  const credential = getCredential();
+  if (!credential) {
+    return { configured: false, source: null, type: null, preview: '', proxy: publicProxyState(), resources: publicResourceSettings() };
+  }
+  return {
+    configured: true,
+    source: credential.source,
+    type: credential.type,
+    preview: credential.value.length > 10
+      ? `${credential.value.slice(0, 4)}••••${credential.value.slice(-4)}`
+      : '••••',
+    proxy: publicProxyState(),
+    resources: publicResourceSettings()
+  };
+}
+
+function getCachedTmdbPayload(cacheKey) {
+  const cached = tmdbResponseCache.get(cacheKey);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    tmdbResponseCache.delete(cacheKey);
+    return null;
+  }
+  return cached.payload;
+}
+
+function setCachedTmdbPayload(cacheKey, payload) {
+  if (!TMDB_CACHE_TTL_MS) return;
+  while (tmdbResponseCache.size >= TMDB_CACHE_MAX) {
+    const firstKey = tmdbResponseCache.keys().next().value;
+    if (!firstKey) break;
+    tmdbResponseCache.delete(firstKey);
+  }
+  tmdbResponseCache.set(cacheKey, {
+    expiresAt: Date.now() + TMDB_CACHE_TTL_MS,
+    payload
+  });
+}
+
+function clearTmdbCaches() {
+  tmdbResponseCache.clear();
+  tmdbInFlight.clear();
+}
+
+function settle(promise) {
+  return promise.then(
+    (value) => ({ status: 'fulfilled', value }),
+    (reason) => ({ status: 'rejected', reason })
+  );
+}
+
+function withSoftTimeout(promise, timeoutMs, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      setTimeout(() => resolve(fallback), timeoutMs);
+    })
+  ]);
+}
+
+function buildTmdbUrl(endpoint, params = {}) {
+  const url = new URL(`${TMDB_BASE_URL}${endpoint}`);
+  const credential = getCredential();
+  if (!credential) {
+    const error = new Error('TMDB credential is missing.');
+    error.code = 'MISSING_TMDB_CREDENTIAL';
+    throw error;
+  }
+
+  const merged = {
+    language: DEFAULT_LANGUAGE,
+    ...params
+  };
+  for (const [key, value] of Object.entries(merged)) {
+    if (value === undefined || value === null || value === '') continue;
+    url.searchParams.set(key, String(value));
+  }
+  if (credential.type === 'apiKey') {
+    url.searchParams.set('api_key', credential.value);
+  }
+  return { url, credential };
+}
+
+async function tmdbFetch(endpoint, params = {}) {
+  const { url, credential } = buildTmdbUrl(endpoint, params);
+  const cacheKey = `${credential.type}:${credential.value}|${url.pathname}?${url.searchParams.toString()}`;
+  const cachedPayload = getCachedTmdbPayload(cacheKey);
+  if (cachedPayload) return cachedPayload;
+  if (tmdbInFlight.has(cacheKey)) return tmdbInFlight.get(cacheKey);
+
+  const request = (async () => {
+    await applyProxySetting();
+
+    const headers = {
+      accept: 'application/json'
+    };
+    if (credential.type === 'readToken') {
+      headers.authorization = `Bearer ${credential.value}`;
+    }
+
+    let response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TMDB_TIMEOUT_MS);
+    try {
+      response = await session.defaultSession.fetch(url.toString(), { headers, signal: controller.signal });
+    } catch (requestError) {
+      const resolvedProxy = await session.defaultSession.resolveProxy('https://api.themoviedb.org/3/configuration')
+        .catch(() => 'UNKNOWN');
+      const isTimeout = requestError?.name === 'AbortError';
+      const error = new Error(
+        isTimeout
+          ? `网络连接超时（${TMDB_TIMEOUT_MS}ms）：请检查代理地址；当前代理解析：${resolvedProxy}`
+          : `网络连接失败：${requestError.message || requestError}；当前代理解析：${resolvedProxy}`
+      );
+      error.code = 'TMDB_NETWORK_FAILED';
+      error.resolvedProxy = resolvedProxy;
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch {
+      payload = {};
+    }
+
+    if (!response.ok) {
+      const error = new Error(payload.status_message || `TMDB request failed: ${response.status}`);
+      error.code = response.status === 401 ? 'TMDB_AUTH_FAILED' : 'TMDB_REQUEST_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+    setCachedTmdbPayload(cacheKey, payload);
+    return payload;
+  })().finally(() => tmdbInFlight.delete(cacheKey));
+
+  tmdbInFlight.set(cacheKey, request);
+  return request;
+}
+
+function getCachedResourcePayload(cacheKey) {
+  const cached = resourceResponseCache.get(cacheKey);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    resourceResponseCache.delete(cacheKey);
+    return null;
+  }
+  return cached.payload;
+}
+
+function setCachedResourcePayload(cacheKey, payload) {
+  if (!RESOURCE_CACHE_TTL_MS) return;
+  while (resourceResponseCache.size >= RESOURCE_CACHE_MAX) {
+    const firstKey = resourceResponseCache.keys().next().value;
+    if (!firstKey) break;
+    resourceResponseCache.delete(firstKey);
+  }
+  resourceResponseCache.set(cacheKey, {
+    expiresAt: Date.now() + RESOURCE_CACHE_TTL_MS,
+    payload
+  });
+}
+
+function buildResourceUrl(source, params = {}) {
+  const url = new URL(source.api);
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue;
+    url.searchParams.set(key, String(value));
+  }
+  return url;
+}
+
+function parseMaybeJson(text) {
+  const trimmed = String(text || '').replace(/^\uFEFF/, '').trim();
+  if (!trimmed || trimmed[0] === '<') return null;
+  return JSON.parse(trimmed);
+}
+
+async function resourceFetchJson(source, params = {}) {
+  const url = buildResourceUrl(source, params);
+  const cacheKey = `${source.key}|${url.searchParams.toString()}`;
+  const cachedPayload = getCachedResourcePayload(cacheKey);
+  if (cachedPayload) return cachedPayload;
+
+  await applyProxySetting().catch(() => {});
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RESOURCE_TIMEOUT_MS);
+  try {
+    const response = await session.defaultSession.fetch(url.toString(), {
+      signal: controller.signal,
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0'
+      }
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(`资源源请求失败：${response.status}`);
+      error.code = 'RESOURCE_HTTP_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+    const payload = require('./studio-resource-payload.cjs').parseResourcePayload(text);
+    if (!payload || !Array.isArray(payload.list)) {
+      const error = new Error('资源源返回格式不可用。');
+      error.code = 'RESOURCE_BAD_PAYLOAD';
+      throw error;
+    }
+    setCachedResourcePayload(cacheKey, payload);
+    return payload;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function normalizeMediaTargetUrl(value) {
+  const target = String(value || '').trim();
+  if (target.length < 8 || target.length > 4096) return null;
+  try {
+    const url = new URL(target);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function getMediaProxyUrl(target) {
+  const url = normalizeMediaTargetUrl(target);
+  if (!url || !mediaProxyPort) return '';
+  const proxyUrl = new URL(`http://127.0.0.1:${mediaProxyPort}/media`);
+  proxyUrl.searchParams.set('token', MEDIA_PROXY_TOKEN);
+  proxyUrl.searchParams.set('url', url.toString());
+  return proxyUrl.toString();
+}
+
+function inferMediaKind(value = '', contentType = '') {
+  const text = String(value || '').toLowerCase();
+  const type = String(contentType || '').toLowerCase();
+  if (type.includes('mpegurl') || type.includes('x-mpegurl') || type.includes('vnd.apple.mpegurl') || /\.m3u8(?:$|[?#])/i.test(text) || /m3u8/i.test(text)) {
+    return 'hls';
+  }
+  if (type.includes('dash+xml') || type.includes('mpeg-dash') || /\.mpd(?:$|[?#])/i.test(text)) {
+    return 'dash';
+  }
+  if (type.includes('x-flv') || type.includes('flv') || /\.flv(?:$|[?#])/i.test(text)) {
+    return 'flv';
+  }
+  if (type.includes('mp2t') || type.includes('mpegts') || /\.(?:ts|m2ts|mts)(?:$|[?#])/i.test(text)) {
+    return 'mpegts';
+  }
+  if (type.includes('mp4') || /\.m4v(?:$|[?#])/i.test(text) || /\.mp4(?:$|[?#])/i.test(text)) {
+    return 'mp4';
+  }
+  if (type.includes('webm') || /\.webm(?:$|[?#])/i.test(text)) {
+    return 'webm';
+  }
+  if (type.includes('ogg') || /\.(?:ogv|ogg)(?:$|[?#])/i.test(text)) {
+    return 'ogg';
+  }
+  if (NATIVE_MEDIA_EXTENSION_RE.test(text) || type.startsWith('video/') || type.startsWith('audio/')) {
+    return 'native';
+  }
+  if (MEDIA_PAGE_HINT_RE.test(text)) return 'page';
+  return 'native';
+}
+
+function mediaFormatLabel(kind = 'native') {
+  switch (kind) {
+    case 'hls':
+      return 'HLS';
+    case 'dash':
+      return 'DASH';
+    case 'flv':
+      return 'FLV';
+    case 'mpegts':
+      return 'MPEG-TS';
+    case 'mp4':
+      return 'MP4';
+    case 'webm':
+      return 'WebM';
+    case 'ogg':
+      return 'OGG';
+    case 'page':
+      return '网页解析';
+    default:
+      return '直连';
+  }
+}
+
+function playbackMetaForUrl(value = '', lineName = '') {
+  const url = String(value || '');
+  const kind = inferMediaKind(url);
+  const name = String(lineName || '').toLowerCase();
+  const needsResolve = kind === 'page' || (!PLAYABLE_MEDIA_EXTENSION_RE.test(url) && MEDIA_PAGE_HINT_RE.test(url));
+  let format = mediaFormatLabel(kind);
+  if (needsResolve) {
+    format = name.includes('m3u8') ? '网页解析·HLS' : '网页解析';
+  }
+  return {
+    kind,
+    format,
+    needsResolve
+  };
+}
+
+function getCachedMediaResolve(target) {
+  const cached = mediaResolveCache.get(target);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    mediaResolveCache.delete(target);
+    return null;
+  }
+  return cached.payload;
+}
+
+function setCachedMediaResolve(target, payload) {
+  if (!MEDIA_RESOLVE_CACHE_TTL_MS) return;
+  while (mediaResolveCache.size >= 160) {
+    const firstKey = mediaResolveCache.keys().next().value;
+    if (!firstKey) break;
+    mediaResolveCache.delete(firstKey);
+  }
+  mediaResolveCache.set(target, {
+    expiresAt: Date.now() + MEDIA_RESOLVE_CACHE_TTL_MS,
+    payload
+  });
+}
+
+function decodeMediaCandidate(value = '') {
+  let text = String(value || '').trim();
+  if (!text) return '';
+  text = text
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+  try {
+    text = JSON.parse(`"${text.replace(/"/g, '\\"').replace(/\r?\n/g, '\\n')}"`);
+  } catch {
+    text = text
+      .replace(/\\\//g, '/')
+      .replace(/\\u([0-9a-f]{4})/gi, (_match, hex) => String.fromCharCode(Number.parseInt(hex, 16)));
+  }
+  return text.trim();
+}
+
+function normalizeExtractedMediaUrl(candidate, baseUrl) {
+  const decoded = decodeMediaCandidate(candidate);
+  if (!decoded) return '';
+  if (/^(?:javascript|data|blob):/i.test(decoded)) return '';
+  if (/\.(?:jpg|jpeg|png|gif|webp|css|js|vtt|srt)(?:$|[?#])/i.test(decoded)) return '';
+  if (!PLAYABLE_MEDIA_EXTENSION_RE.test(decoded)) return '';
+  try {
+    return new URL(decoded, baseUrl).toString();
+  } catch {
+    return '';
+  }
+}
+
+function pushMediaCandidate(candidates, seen, value, baseUrl) {
+  const url = normalizeExtractedMediaUrl(value, baseUrl);
+  if (!url || seen.has(url)) return;
+  seen.add(url);
+  candidates.push(url);
+}
+
+function extractMediaUrlsFromHtml(text = '', baseUrl = '') {
+  const html = String(text || '');
+  const candidates = [];
+  const seen = new Set();
+  const variableRe = /(?:const|let|var)\s+(?:url|main|video|source|src|file|playurl|player_url|m3u8|mp4)\s*=\s*(['"`])([\s\S]*?)\1/gi;
+  const propertyRe = /\b(?:url|src|file|video|source|playUrl|player_url)\s*:\s*(['"`])([\s\S]*?)\1/gi;
+  const attrRe = /\b(?:src|data-src|data-url|data-player|href)=["']([^"']+)["']/gi;
+  const quotedMediaRe = /["']([^"']+\.(?:m3u8|mpd|mp4|m4v|webm|ogv|ogg|flv|ts|m2ts|mts|mov|mkv|avi|mpeg|mpg|3gp|f4v)(?:[?#][^"']*)?)["']/gi;
+
+  for (const regex of [variableRe, propertyRe, attrRe, quotedMediaRe]) {
+    for (const match of html.matchAll(regex)) {
+      pushMediaCandidate(candidates, seen, match[2] || match[1], baseUrl);
+    }
+  }
+
+  return candidates.sort((a, b) => {
+    const score = (url) => {
+      const kind = inferMediaKind(url);
+      if (kind === 'hls') return 40;
+      if (kind === 'dash') return 34;
+      if (kind === 'mp4') return 30;
+      if (kind === 'flv') return 24;
+      if (kind === 'mpegts') return 20;
+      return 10;
+    };
+    return score(b) - score(a);
+  });
+}
+
+async function resolveMediaUrl(target) {
+  const sourceUrl = normalizeMediaTargetUrl(target);
+  if (!sourceUrl) {
+    const error = new Error('Invalid media url.');
+    error.code = 'INVALID_MEDIA_URL';
+    throw error;
+  }
+
+  const original = sourceUrl.toString();
+  const directKind = inferMediaKind(original);
+  if (directKind !== 'page' && PLAYABLE_MEDIA_EXTENSION_RE.test(original)) {
+    return {
+      originalUrl: original,
+      url: original,
+      resolved: false,
+      kind: directKind,
+      format: mediaFormatLabel(directKind),
+      contentType: ''
+    };
+  }
+
+  const cached = getCachedMediaResolve(original);
+  if (cached) return cached;
+
+  await applyProxySetting().catch(() => {});
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEDIA_RESOLVE_TIMEOUT_MS);
+  try {
+    const response = await session.defaultSession.fetch(original, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0',
+        referer: `${sourceUrl.origin}/`
+      }
+    });
+    clearTimeout(timeout);
+
+    const finalUrl = response.url || original;
+    const contentType = String(response.headers.get('content-type') || '');
+    const responseKind = inferMediaKind(finalUrl, contentType);
+    if (responseKind !== 'page' && (PLAYABLE_MEDIA_EXTENSION_RE.test(finalUrl) || contentType.toLowerCase().startsWith('video/') || contentType.toLowerCase().startsWith('audio/') || contentType.toLowerCase().includes('mpegurl') || contentType.toLowerCase().includes('dash+xml'))) {
+      const payload = {
+        originalUrl: original,
+        url: finalUrl,
+        resolved: finalUrl !== original,
+        kind: responseKind,
+        format: mediaFormatLabel(responseKind),
+        contentType
+      };
+      setCachedMediaResolve(original, payload);
+      return payload;
+    }
+
+    const text = await response.text();
+    const candidates = extractMediaUrlsFromHtml(text, finalUrl);
+    const url = candidates[0] || finalUrl;
+    const kind = inferMediaKind(url);
+    const payload = {
+      originalUrl: original,
+      url,
+      resolved: url !== original,
+      kind,
+      format: mediaFormatLabel(kind),
+      contentType,
+      candidates: candidates.slice(0, 6)
+    };
+    setCachedMediaResolve(original, payload);
+    return payload;
+  } catch (error) {
+    clearTimeout(timeout);
+    const payload = {
+      originalUrl: original,
+      url: original,
+      resolved: false,
+      kind: directKind,
+      format: mediaFormatLabel(directKind),
+      contentType: '',
+      error: error?.name === 'AbortError' ? 'resolve-timeout' : 'resolve-failed'
+    };
+    setCachedMediaResolve(original, payload);
+    return payload;
+  }
+}
+
+function isLikelyM3u8Response(response, targetUrl) {
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('mpegurl') || contentType.includes('x-mpegurl') || contentType.includes('vnd.apple.mpegurl')) {
+    return true;
+  }
+  return /\.m3u8(?:$|[?#])/i.test(targetUrl.pathname + targetUrl.search);
+}
+
+function isLikelyMpdResponse(response, targetUrl) {
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('dash+xml') || contentType.includes('mpeg-dash')) return true;
+  return /\.mpd(?:$|[?#])/i.test(targetUrl.pathname + targetUrl.search);
+}
+
+function mediaProxyHeaders(response, overrides = {}) {
+  const headers = {};
+  response.headers.forEach((value, key) => {
+    const normalizedKey = key.toLowerCase();
+    if (
+      normalizedKey === 'content-security-policy'
+      || normalizedKey === 'content-security-policy-report-only'
+      || normalizedKey === 'x-frame-options'
+      || normalizedKey === 'transfer-encoding'
+      || normalizedKey === 'content-encoding'
+    ) {
+      return;
+    }
+    headers[key] = value;
+  });
+  return {
+    ...headers,
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+    'access-control-allow-headers': 'range, origin, accept, content-type',
+    'access-control-expose-headers': 'content-length, content-range, accept-ranges, content-type',
+    'cache-control': headers['cache-control'] || 'public, max-age=60',
+    ...overrides
+  };
+}
+
+function proxiedManifestUrl(rawUrl, baseUrl) {
+  if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('blob:')) return rawUrl;
+  try {
+    const resolved = new URL(rawUrl, baseUrl);
+    const proxyUrl = new URL('/media', `http://127.0.0.1:${mediaProxyPort}`);
+    proxyUrl.searchParams.set('token', MEDIA_PROXY_TOKEN);
+    proxyUrl.searchParams.set('url', resolved.toString());
+    return proxyUrl.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+function rewriteM3u8AttributeUris(line, baseUrl) {
+  return line.replace(/URI=(?:"([^"]+)"|([^,\s]+))/gi, (_match, quotedUri, bareUri) => {
+    const cleanUri = String(quotedUri || bareUri || '').replace(/^['"]|['"]$/g, '');
+    return `URI="${proxiedManifestUrl(cleanUri, baseUrl)}"`;
+  });
+}
+
+function rewriteM3u8Manifest(text, baseUrl) {
+  text = filterAdsFromM3u8(text);
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (trimmed.startsWith('#')) return rewriteM3u8AttributeUris(line, baseUrl);
+      return proxiedManifestUrl(trimmed, baseUrl);
+    })
+    .join('\n');
+}
+
+function escapeXmlText(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function escapeXmlAttribute(value) {
+  return escapeXmlText(value)
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+function encodeDashTemplateUrl(value) {
+  return encodeURIComponent(String(value || ''))
+    .replace(/%24(RepresentationID|Number|Bandwidth|Time)(%25[0-9]+d)?%24/g, (_match, name, format = '') => {
+      return `$${name}${format ? decodeURIComponent(format) : ''}$`;
+    });
+}
+
+function proxiedDashManifestUrl(rawUrl, baseUrl) {
+  if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('blob:')) return rawUrl;
+  try {
+    const resolved = new URL(rawUrl, baseUrl).toString();
+    return `http://127.0.0.1:${mediaProxyPort}/media?token=${encodeURIComponent(MEDIA_PROXY_TOKEN)}&url=${encodeDashTemplateUrl(resolved)}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+function rewriteMpdManifest(text, baseUrl) {
+  return String(text || '')
+    .replace(/(<BaseURL\b[^>]*>)([\s\S]*?)(<\/BaseURL>)/gi, (match, openTag, value, closeTag) => {
+      const rawValue = String(value || '').trim();
+      if (!rawValue) return match;
+      return `${openTag}${escapeXmlText(proxiedDashManifestUrl(rawValue, baseUrl))}${closeTag}`;
+    })
+    .replace(/\b(media|initialization|sourceURL|index)="([^"]+)"/gi, (match, name, value) => {
+      if (!value || value.startsWith('data:') || value.startsWith('blob:')) return match;
+      return `${name}="${escapeXmlAttribute(proxiedDashManifestUrl(value, baseUrl))}"`;
+    })
+    .replace(/\b(media|initialization|sourceURL|index)='([^']+)'/gi, (match, name, value) => {
+      if (!value || value.startsWith('data:') || value.startsWith('blob:')) return match;
+      return `${name}='${escapeXmlAttribute(proxiedDashManifestUrl(value, baseUrl))}'`;
+    });
+}
+
+async function proxyMediaRequest(req, res) {
+  const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+      'access-control-allow-headers': 'range, origin, accept, content-type'
+    });
+    res.end();
+    return;
+  }
+
+  if (requestUrl.pathname !== '/media' || requestUrl.searchParams.get('token') !== MEDIA_PROXY_TOKEN) {
+    res.writeHead(404);
+    res.end('Not found');
+    return;
+  }
+
+  const targetUrl = normalizeMediaTargetUrl(requestUrl.searchParams.get('url'));
+  if (!targetUrl) {
+    res.writeHead(400, { 'access-control-allow-origin': '*' });
+    res.end('Invalid media url');
+    return;
+  }
+
+  await applyProxySetting().catch(() => {});
+
+  // Playback upstream fast-path: used when the user opted out of proxy for
+  // playback, or when the proxy-monitor detected an upstream proxy outage.
+  if (playbackProxyGuard && playbackProxyGuard.shouldUseDirectUpstream()) {
+    const handledDirectUpstream = await playbackProxyGuard
+      .handleDirectUpstream(req, res, targetUrl)
+      .catch(() => false);
+    if (handledDirectUpstream) return;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEDIA_PROXY_TIMEOUT_MS);
+
+  try {
+    const upstreamHeaders = {
+      accept: req.headers.accept || '*/*',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0',
+      referer: `${targetUrl.origin}/`
+    };
+    if (req.headers.range) upstreamHeaders.range = req.headers.range;
+
+    const upstream = await session.defaultSession.fetch(targetUrl.toString(), {
+      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+      headers: upstreamHeaders,
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    const finalUrl = upstream.url || targetUrl.toString();
+    if (req.method !== 'HEAD' && isLikelyM3u8Response(upstream, new URL(finalUrl))) {
+      const manifest = rewriteM3u8Manifest(await upstream.text(), finalUrl);
+      const body = Buffer.from(manifest, 'utf8');
+      res.writeHead(upstream.status, mediaProxyHeaders(upstream, {
+        'content-type': 'application/vnd.apple.mpegurl; charset=utf-8',
+        'content-length': String(body.length)
+      }));
+      res.end(body);
+      return;
+    }
+
+    if (req.method !== 'HEAD' && isLikelyMpdResponse(upstream, new URL(finalUrl))) {
+      const manifest = rewriteMpdManifest(await upstream.text(), finalUrl);
+      const body = Buffer.from(manifest, 'utf8');
+      res.writeHead(upstream.status, mediaProxyHeaders(upstream, {
+        'content-type': 'application/dash+xml; charset=utf-8',
+        'content-length': String(body.length)
+      }));
+      res.end(body);
+      return;
+    }
+
+    res.writeHead(upstream.status, mediaProxyHeaders(upstream));
+    if (req.method === 'HEAD' || !upstream.body) {
+      res.end();
+      return;
+    }
+
+    const stream = Readable.fromWeb(upstream.body);
+    stream.on('error', () => {
+      if (!res.destroyed) res.destroy();
+    });
+    req.on('close', () => stream.destroy());
+    stream.pipe(res);
+  } catch (error) {
+    clearTimeout(timeout);
+    if (!res.headersSent) {
+      res.writeHead(error?.name === 'AbortError' ? 504 : 502, {
+        'access-control-allow-origin': '*',
+        'content-type': 'text/plain; charset=utf-8'
+      });
+    }
+    res.end(error?.name === 'AbortError' ? 'Media proxy timeout' : 'Media proxy failed');
+  }
+}
+
+function startMediaProxyServer() {
+  if (mediaProxyPort) return Promise.resolve(mediaProxyPort);
+  if (mediaProxyStarting) return mediaProxyStarting;
+
+  mediaProxyStarting = new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      proxyMediaRequest(req, res).catch((error) => {
+        if (!res.headersSent) {
+          res.writeHead(500, {
+            'access-control-allow-origin': '*',
+            'content-type': 'text/plain; charset=utf-8'
+          });
+        }
+        res.end(error?.message || 'Media proxy error');
+      });
+    });
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      mediaProxyServer = server;
+      mediaProxyPort = server.address().port;
+      resolve(mediaProxyPort);
+    });
+  }).finally(() => {
+    mediaProxyStarting = null;
+  });
+
+  return mediaProxyStarting;
+}
+
+function normalizeResourceTitle(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/&amp;/g, '&')
+    .replace(/\[[^\]]*?(解说|预告|花絮|短评)[^\]]*?\]/g, '')
+    .replace(/【[^】]*?(解说|预告|花絮|短评)[^】]*?】/g, '')
+    .replace(/\([^)]*?(解说|预告|花絮|短评|原声版|普通话|国语|粤语|英语|中字|字幕)[^)]*?\)/g, '')
+    .replace(/（[^）]*?(解说|预告|花絮|短评|原声版|普通话|国语|粤语|英语|中字|字幕)[^）]*?）/g, '')
+    .replace(/第[一二三四五六七八九十0-9]+季/g, '')
+    .replace(/[\s·・:：,，.。!！?？'"“”‘’《》〈〉\-—_/\\|]+/g, '')
+    .trim();
+}
+
+function releaseYearOf(payload = {}) {
+  return String(payload.year || payload.releaseYear || payload.releaseDate || '')
+    .match(/\d{4}/)?.[0] || '';
+}
+
+function resourceCandidateScore(item, titles, releaseYear) {
+  const rawName = String(item?.vod_name || item?.name || '');
+  const name = normalizeResourceTitle(rawName);
+  if (!name) return -999;
+
+  let best = -999;
+  for (const title of titles) {
+    const target = normalizeResourceTitle(title);
+    if (!target) continue;
+    let score = -999;
+    if (name === target) {
+      score = 110;
+    } else if (name.startsWith(target)) {
+      const suffix = name.slice(target.length);
+      score = /^(19|20)\d{2}$/.test(suffix)
+        ? 70
+        : /^[0-9一二三四五六七八九十]/.test(suffix) && !/[0-9一二三四五六七八九十]$/.test(target)
+          ? 22
+          : 72 - Math.min(18, suffix.length * 2);
+    } else if (target.startsWith(name) && target.length - name.length <= 4) {
+      score = 58;
+    } else if (name.includes(target) && target.length >= 4) {
+      score = 52 - Math.min(12, name.length - target.length);
+    }
+    best = Math.max(best, score);
+  }
+
+  const haystack = `${rawName} ${item?.type_name || ''} ${item?.vod_remarks || ''}`;
+  if (/(解说|预告|花絮|短评)/i.test(haystack)) best -= 80;
+  if (/(体育|NBA|CBA|WTA|世界杯|比赛)/i.test(haystack)) best -= 36;
+  const itemYear = String(item?.vod_year || item?.year || '').match(/\d{4}/)?.[0] || '';
+  if (releaseYear && itemYear) best += itemYear === releaseYear ? 12 : -8;
+  return best;
+}
+
+function uniqueResourceQueries(payload = {}) {
+  const values = [
+    payload.title,
+    payload.originalTitle,
+    String(payload.title || '').replace(/[：:].*$/, ''),
+    String(payload.title || '').replace(/[（(].*?[）)]/g, '')
+  ];
+  const seen = new Set();
+  return values
+    .map((value) => String(value || '').trim())
+    .filter((value) => value.length >= 2)
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 4);
+}
+
+function parsePlayGroups(item = {}) {
+  const fromGroups = String(item.vod_play_from || item.play_from || '默认线路').split('$$$');
+  const urlGroups = String(item.vod_play_url || item.play_url || '').split('$$$');
+  return urlGroups
+    .map((group, index) => {
+      const episodes = String(group || '')
+        .split('#')
+        .map((segment, episodeIndex) => {
+          const clean = segment.trim();
+          if (!clean) return null;
+          const dollarIndex = clean.lastIndexOf('$');
+          const label = dollarIndex > 0 ? clean.slice(0, dollarIndex) : `播放 ${episodeIndex + 1}`;
+          const url = dollarIndex > 0 ? clean.slice(dollarIndex + 1) : clean;
+          if (!/^https?:\/\//i.test(url)) return null;
+          const meta = playbackMetaForUrl(url, fromGroups[index] || fromGroups[0] || '');
+          return {
+            label: label.trim() || `播放 ${episodeIndex + 1}`,
+            url,
+            kind: meta.kind,
+            format: meta.format,
+            needsResolve: meta.needsResolve
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 240);
+      if (!episodes.length) return null;
+      return {
+        name: (fromGroups[index] || fromGroups[0] || `线路 ${index + 1}`).trim() || `线路 ${index + 1}`,
+        episodes
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function compactResourceItem(source, item, payload) {
+  const groups = parsePlayGroups(item);
+  if (!groups.length) return null;
+  const first = groups[0]?.episodes?.[0];
+  const seasonEpisodeCount = groups.reduce((max, group) => Math.max(max, group.episodes.length), 0);
+  const formats = Array.from(new Set(groups.flatMap((group) => group.episodes.map((episode) => episode.format).filter(Boolean)))).slice(0, 5);
+  return {
+    sourceKey: source.key,
+    sourceName: source.name,
+    title: String(item.vod_name || payload.title || '未命名资源'),
+    year: String(item.vod_year || ''),
+    type: String(item.type_name || ''),
+    remarks: String(item.vod_remarks || item.vod_pubdate || ''),
+    updatedAt: String(item.vod_time || item.vod_time_add || ''),
+    poster: /^https?:\/\//i.test(String(item.vod_pic || '')) ? String(item.vod_pic) : '',
+    firstUrl: first?.url || '',
+    firstLabel: first?.label || '播放',
+    formats,
+    isSeries: seasonEpisodeCount > 1,
+    seasonEpisodeCount,
+    playGroupCount: groups.length,
+    episodeCount: groups.reduce((total, group) => total + group.episodes.length, 0),
+    lines: groups.map((group) => ({
+      name: group.name,
+      episodes: group.episodes
+    }))
+  };
+}
+
+async function hydrateResourceDetail(source, item) {
+  if (parsePlayGroups(item).length || !item?.vod_id) return item;
+  const attempts = ['detail', 'videolist'].map(async (ac) => {
+    try {
+      const detail = await resourceFetchJson(source, { ac, ids: item.vod_id });
+      const detailItem = Array.isArray(detail?.list) ? detail.list[0] : null;
+      if (detailItem) return detailItem;
+    } catch {
+      // fall through to the other detail probe
+    }
+    return null;
+  });
+  try {
+    const detailItem = await Promise.any(attempts.map((attempt) => attempt.then((value) => {
+      if (value) return value;
+      throw new Error('empty');
+    })));
+    if (detailItem) return { ...item, ...detailItem };
+  } catch {
+    // both probes failed or returned empty
+  }
+  return item;
+}
+
+async function searchResourceSource(source, payload = {}) {
+  const titles = uniqueResourceQueries(payload);
+  const releaseYear = releaseYearOf(payload);
+  for (const query of titles) {
+    try {
+      const data = await resourceFetchJson(source, { ac: 'videolist', wd: query });
+      const list = Array.isArray(data.list) ? data.list : [];
+      const candidates = list
+        .map((item) => ({ item, score: resourceCandidateScore(item, titles, releaseYear) }))
+        .filter((entry) => entry.score >= 44)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4);
+      for (const { item } of candidates) {
+        const hydrated = await hydrateResourceDetail(source, item);
+        const compact = compactResourceItem(source, hydrated, payload);
+        if (compact) return compact;
+      }
+    } catch {
+      // Resource sources are optional and unstable; failed sources are skipped.
+    }
+  }
+  return null;
+}
+
+async function findMovieResources(payload = {}, options = {}) {
+  const settings = publicResourceSettings();
+  const allSources = selectResourceSources(settings.mode);
+  if (!settings.enabled || !allSources.length) {
+    return { ...settings, checked: 0, total: 0, nextCursor: 0, done: true, resources: [] };
+  }
+
+  const cursor = Math.max(0, Number(options.cursor || 0));
+  const limit = Math.min(4, Math.max(1, Number(options.limit || 3)));
+  const batch = allSources.slice(cursor, cursor + limit);
+  const settled = await Promise.allSettled(batch.map((source) => searchResourceSource(source, payload)));
+  const resources = settled
+    .filter((result) => result.status === 'fulfilled' && result.value)
+    .map((result) => result.value);
+  const nextCursor = Math.min(allSources.length, cursor + batch.length);
+  return {
+    ...settings,
+    checked: nextCursor,
+    total: allSources.length,
+    nextCursor,
+    done: nextCursor >= allSources.length,
+    resources
+  };
+}
+
+const MOVIE_TO_TV_GENRE_MAP = {
+  12: [10759],
+  14: [10765],
+  16: [16],
+  18: [18],
+  27: [],
+  28: [10759],
+  35: [35],
+  36: [],
+  37: [37],
+  53: [9648, 10759],
+  80: [80],
+  99: [99],
+  878: [10765],
+  9648: [9648],
+  10402: [],
+  10749: [18],
+  10751: [10751],
+  10752: [10768],
+  10770: []
+};
+
+function normalizeTmdbMediaType(value, fallback = 'movie') {
+  const type = String(value || fallback || 'movie').toLowerCase();
+  return type === 'tv' ? 'tv' : 'movie';
+}
+
+function tmdbItemMediaType(item, fallback = 'movie') {
+  if (item?.media_type && !['movie', 'tv'].includes(String(item.media_type).toLowerCase())) return '';
+  return normalizeTmdbMediaType(item?.media_type || fallback);
+}
+
+function mapMovieGenreIdsToTv(value) {
+  const ids = Array.isArray(value)
+    ? value
+    : String(value || '')
+      .split(/[|,]/)
+      .map((id) => Number(id))
+      .filter(Boolean);
+  const mapped = ids.flatMap((id) => MOVIE_TO_TV_GENRE_MAP[id] || [id]).filter(Boolean);
+  return [...new Set(mapped)];
+}
+
+function mapGenreParamToTv(value) {
+  if (!value) return undefined;
+  const separator = String(value).includes('|') ? '|' : ',';
+  const mapped = String(value)
+    .split(/[|,]/)
+    .map((id) => Number(id))
+    .filter(Boolean)
+    .flatMap((id) => MOVIE_TO_TV_GENRE_MAP[id] || [id])
+    .filter(Boolean);
+  return [...new Set(mapped)].join(separator) || undefined;
+}
+
+function compactMovie(movie, fallbackMediaType = 'movie') {
+  if (!movie || !movie.id) return null;
+  const mediaType = tmdbItemMediaType(movie, fallbackMediaType);
+  if (!mediaType) return null;
+  return {
+    id: movie.id,
+    mediaType,
+    title: movie.title || movie.name || (mediaType === 'tv' ? '未命名节目' : '未命名电影'),
+    originalTitle: movie.original_title || movie.original_name || '',
+    overview: movie.overview || '',
+    posterPath: movie.poster_path || null,
+    backdropPath: movie.backdrop_path || null,
+    voteAverage: Number(movie.vote_average || 0),
+    voteCount: Number(movie.vote_count || 0),
+    releaseDate: movie.release_date || movie.first_air_date || '',
+    genreIds: Array.isArray(movie.genre_ids) ? movie.genre_ids : [],
+    popularity: Number(movie.popularity || 0),
+    adult: Boolean(movie.adult)
+  };
+}
+
+function compactMovies(results = [], limit = 18, fallbackMediaType = 'movie') {
+  const seen = new Set();
+  return results
+    .map((item) => compactMovie(item, fallbackMediaType))
+    .filter(Boolean)
+    .filter((movie) => {
+      const key = `${movie.mediaType || 'movie'}:${movie.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .filter((movie) => !movie.adult)
+    .slice(0, limit);
+}
+
+async function getGenres() {
+  const [movieResult, tvResult] = await Promise.all([
+    settle(tmdbFetch('/genre/movie/list')),
+    settle(tmdbFetch('/genre/tv/list'))
+  ]);
+  const byId = new Map();
+  for (const genre of movieResult.status === 'fulfilled' && Array.isArray(movieResult.value.genres) ? movieResult.value.genres : []) {
+    byId.set(genre.id, genre);
+  }
+  for (const genre of tvResult.status === 'fulfilled' && Array.isArray(tvResult.value.genres) ? tvResult.value.genres : []) {
+    if (!byId.has(genre.id)) byId.set(genre.id, genre);
+  }
+  return [...byId.values()];
+}
+
+async function getTrending(limit = 20) {
+  const data = await tmdbFetch('/trending/all/day', { page: 1 });
+  return compactMovies(data.results, limit);
+}
+
+async function getPopular(limit = 20) {
+  const [movieResult, tvResult] = await Promise.all([
+    settle(tmdbFetch('/movie/popular', { page: 1, region: DEFAULT_REGION })),
+    settle(tmdbFetch('/tv/popular', { page: 1 }))
+  ]);
+  return compactMovies([
+    ...(movieResult.status === 'fulfilled' ? (movieResult.value.results || []) : []),
+    ...(tvResult.status === 'fulfilled' ? (tvResult.value.results || []).map((item) => ({ ...item, media_type: 'tv' })) : [])
+  ], limit);
+}
+
+function selectDailyMovie(movies) {
+  if (!movies.length) return null;
+  const now = new Date();
+  const utcDate = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const dayNumber = Math.floor(utcDate / 86400000);
+  return movies[dayNumber % movies.length];
+}
+
+async function getInitialData() {
+  const credential = publicCredentialState();
+  // 未配置时直接进入公开片单模式，避免把空结果当作待完成的 TMDB 请求。
+  if (!credential.configured) return { credential, genres: [], daily: null, trending: [], popular: [] };
+  const [trendingResult, genresResult, popularResult] = await Promise.all([
+    withSoftTimeout(settle(getTrending(20)), INITIAL_SOFT_TIMEOUT_MS, { status: 'timeout' }),
+    withSoftTimeout(settle(getGenres()), INITIAL_SOFT_TIMEOUT_MS, { status: 'timeout' }),
+    withSoftTimeout(settle(getPopular(20)), INITIAL_SOFT_TIMEOUT_MS, { status: 'timeout' })
+  ]);
+  const genres = genresResult.status === 'fulfilled' ? genresResult.value : [];
+  const trending = trendingResult.status === 'fulfilled' ? trendingResult.value : [];
+  const popular = popularResult.status === 'fulfilled' ? popularResult.value : [];
+  if (!trending.length && !popular.length && trendingResult.status === 'rejected') throw trendingResult.reason;
+
+  return {
+    credential,
+    genres,
+    daily: selectDailyMovie(trending.length ? trending : popular),
+    trending,
+    popular
+  };
+}
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 1040,
+    minHeight: 680,
+    backgroundColor: '#00000000',
+    frame: false,
+    transparent: true,
+    show: false,
+    title: 'CineFlow',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    applyWindowShape('normal');
+    if (!studioBridge) mainWindow.show();
+  });
+
+  mainWindow.on('resize', () => applyWindowShape(windowMode));
+  mainWindow.on('maximize', () => applyWindowShape(windowMode));
+  mainWindow.on('unmaximize', () => applyWindowShape(windowMode));
+
+  if (studioBridge) return;
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devUrl) {
+    mainWindow.loadURL(devUrl);
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  }
+}
+
+app.whenReady().then(() => {
+  startMediaProxyServer().catch(() => {});
+  if (studioBridge) {
+    const settings = readSettings();
+    if (require('./studio-sources.cjs').migrateStudioResourceSources(settings, normalizeResourceSourceEntry)) {
+      touchResourceConfig(settings);
+      writeSettings(settings);
+    }
+  }
+  createWindow();
+  if (studioBridge) studioBridge.start(mainWindow).catch(() => { console.error('影音工作室桥接启动失败，请检查端口和数据目录。'); app.quit(); });
+  initNetworkAcceleration();
+  applyProxySetting({ force: true }).catch(() => {});
+
+  // v3.4.0 投屏（纯增量）：Web Bluetooth 设备选择回调只用于回捞"实时发现的设备名"给投屏面板，
+  // 一律回调空字符串，绝不主动连接任何设备。
+  try {
+    session.defaultSession.on('select-bluetooth-device', (event, discoveryEvent) => {
+      try {
+        event.preventDefault();
+        castController.publishBluetoothDiscovered(discoveryEvent?.devices || []);
+        event.callback('');
+      } catch {
+        // Web Bluetooth 不可用时忽略
+      }
+    });
+  } catch {
+    // 旧版本无该事件时忽略
+  }
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  if (mediaProxyServer) {
+    mediaProxyServer.close();
+    mediaProxyServer = null;
+    mediaProxyPort = 0;
+  }
+});
+
+ipcMain.handle('app:getCredentialState', () => publicCredentialState());
+
+ipcMain.handle('app:saveCredential', (_event, credential) => {
+  const normalized = normalizeCredential(credential);
+  if (!normalized) {
+    const error = new Error('请输入有效的 TMDB API Key 或 Read Access Token。');
+    error.code = 'INVALID_CREDENTIAL';
+    throw error;
+  }
+  const settings = readSettings();
+  settings.tmdbCredential = normalized.value;
+  writeSettings(settings);
+  clearTmdbCaches();
+  return publicCredentialState();
+});
+
+ipcMain.handle('app:clearCredential', () => {
+  const settings = readSettings();
+  delete settings.tmdbCredential;
+  writeSettings(settings);
+  clearTmdbCaches();
+  return publicCredentialState();
+});
+
+
+ipcMain.handle('app:saveProxy', async (_event, proxy) => {
+  const settings = readSettings();
+  const normalized = normalizeProxy(proxy);
+  settings.proxy = normalized || 'system';
+  writeSettings(settings);
+  await applyProxySetting({ force: true });
+  clearTmdbCaches();
+  return publicCredentialState();
+});
+
+ipcMain.handle('app:getResourceSettings', () => publicResourceSettings());
+
+ipcMain.handle('app:saveResourceMode', (_event, mode) => {
+  const settings = readSettings();
+  settings.resourceMode = normalizeResourceMode(mode);
+  touchResourceConfig(settings);
+  writeSettings(settings);
+  resourceResponseCache.clear();
+  return publicResourceSettings();
+});
+
+ipcMain.handle('app:saveResourcePlaybackMode', (_event, playbackMode) => {
+  const settings = readSettings();
+  settings.resourcePlaybackMode = normalizeResourcePlaybackMode(playbackMode);
+  touchResourceConfig(settings);
+  writeSettings(settings);
+  return publicResourceSettings();
+});
+
+ipcMain.handle('app:importResourceSources', async (_event, payload) => importResourceSources(payload));
+
+ipcMain.handle('app:clearResourceSources', () => clearResourceSources());
+
+ipcMain.handle('app:testConnection', async () => {
+  const proxy = await applyProxySetting({ force: true });
+  const resolvedProxy = await session.defaultSession.resolveProxy('https://api.themoviedb.org/3/configuration')
+    .catch(() => 'UNKNOWN');
+  const startedAt = Date.now();
+  const data = await tmdbFetch('/configuration');
+  return {
+    ok: true,
+    elapsedMs: Date.now() - startedAt,
+    proxy,
+    resolvedProxy,
+    imagesBaseUrl: data?.images?.secure_base_url || ''
+  };
+});
+
+ipcMain.handle('tmdb:initial', async () => getInitialData());
+
+ipcMain.handle('tmdb:search', async (_event, query, options = {}) => {
+  const cleanQuery = cleanTitleQuery(query);
+  if (!cleanQuery) return [];
+  // 网页桥接会将缺省数组参数序列化为 null，必须显式恢复选项。
+  options = options && typeof options === 'object' ? options : {};
+  const page = Math.min(500, Math.max(1, Math.floor(Number(options.page) || 1)));
+  const exact = options.match === 'exact';
+  const enrich = options.enrich === true && !exact && page === 1;
+  const moviePromise = tmdbFetch('/search/movie', {
+    query: cleanQuery,
+    include_adult: false,
+    page,
+    region: DEFAULT_REGION
+  });
+  const tvPromise = tmdbFetch('/search/tv', {
+    query: cleanQuery,
+    include_adult: false,
+    page
+  });
+  if (!enrich) {
+    const [movieResult, tvResult] = await Promise.all([settle(moviePromise), settle(tvPromise)]);
+    if (movieResult.status === 'rejected' && tvResult.status === 'rejected') throw movieResult.reason;
+    return compactMovies(rankTitleResults([
+      ...(movieResult.status === 'fulfilled' ? (movieResult.value.results || []) : []),
+      ...(tvResult.status === 'fulfilled' ? (tvResult.value.results || []).map((item) => ({ ...item, media_type: 'tv' })) : [])
+    ], cleanQuery, exact), 24);
+  }
+  const personPromise = tmdbFetch('/search/person', {
+    query: cleanQuery,
+    include_adult: false,
+    page: 1
+  });
+  const keywordPromise = tmdbFetch('/search/keyword', {
+    query: cleanQuery,
+    page: 1
+  });
+  const [movieResult, tvResult, personResult, keywordResult] = await Promise.all([
+    settle(moviePromise),
+    settle(tvPromise),
+    withSoftTimeout(settle(personPromise), SEARCH_ENRICH_TIMEOUT_MS, { status: 'timeout' }),
+    withSoftTimeout(settle(keywordPromise), SEARCH_ENRICH_TIMEOUT_MS, { status: 'timeout' })
+  ]);
+  if (![movieResult, tvResult, personResult, keywordResult].some((result) => result.status === 'fulfilled')) {
+    throw movieResult.reason || tvResult.reason;
+  }
+
+  const personMovies = [];
+  if (personResult.status === 'fulfilled') {
+    const people = (personResult.value.results || []).slice(0, 2);
+    const creditResults = await withSoftTimeout(
+      Promise.allSettled(people.map((person) => tmdbFetch(`/person/${person.id}/combined_credits`))),
+      SEARCH_ENRICH_TIMEOUT_MS,
+      []
+    );
+    for (const result of creditResults) {
+      if (result.status !== 'fulfilled') continue;
+      const credits = [
+        ...(result.value.cast || []),
+        ...(result.value.crew || [])
+      ].sort((a, b) => Number(b.popularity || 0) - Number(a.popularity || 0));
+      personMovies.push(...credits.slice(0, 10));
+    }
+  }
+
+  const keywordMovies = [];
+  if (keywordResult.status === 'fulfilled') {
+    const keywordIds = (keywordResult.value.results || [])
+      .slice(0, 3)
+      .map((item) => item.id)
+      .filter(Boolean);
+    if (keywordIds.length) {
+      const discover = await withSoftTimeout(
+        tmdbFetch('/discover/movie', {
+          with_keywords: keywordIds.join('|'),
+          sort_by: 'popularity.desc',
+          include_adult: false,
+          page: 1,
+          region: DEFAULT_REGION
+        }).catch(() => null),
+        SEARCH_ENRICH_TIMEOUT_MS,
+        null
+      );
+      keywordMovies.push(...(discover?.results || []));
+      const tvDiscover = await withSoftTimeout(
+        tmdbFetch('/discover/tv', {
+          with_keywords: keywordIds.join('|'),
+          sort_by: 'popularity.desc',
+          include_adult: false,
+          page: 1
+        }).catch(() => null),
+        SEARCH_ENRICH_TIMEOUT_MS,
+        null
+      );
+      keywordMovies.push(...((tvDiscover?.results || []).map((item) => ({ ...item, media_type: 'tv' }))));
+    }
+  }
+
+  return compactMovies(rankTitleResults([
+    ...(movieResult.status === 'fulfilled' ? (movieResult.value.results || []) : []),
+    ...(tvResult.status === 'fulfilled' ? (tvResult.value.results || []).map((item) => ({ ...item, media_type: 'tv' })) : []),
+    ...personMovies,
+    ...keywordMovies
+  ], cleanQuery, exact), 24);
+});
+
+ipcMain.handle('tmdb:discover', async (_event, options = {}) => {
+  const genreSeparator = String(options.genreMode || 'and').toLowerCase() === 'or' ? '|' : ',';
+  const genreValue = Array.isArray(options.genreIds)
+    ? options.genreIds.join(genreSeparator)
+    : (options.genreId || options.genreIds || undefined);
+  const mediaType = String(options.mediaType || 'all').toLowerCase();
+  const originCountry = /^[A-Z]{2}$/.test(String(options.originCountry || '')) ? options.originCountry : undefined;
+  const releaseDateFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(options.releaseDateFrom || '')) ? options.releaseDateFrom : undefined;
+  const releaseDateTo = /^\d{4}-\d{2}-\d{2}$/.test(String(options.releaseDateTo || '')) ? options.releaseDateTo : undefined;
+  const movieParams = {
+    sort_by: options.sortBy || 'popularity.desc',
+    with_genres: genreValue,
+    without_genres: options.withoutGenreIds || undefined,
+    'vote_count.gte': options.minVotes ?? 80,
+    'vote_average.gte': options.minRating || undefined,
+    include_adult: false,
+    // v3.4.0 纯增量：分类片库按年份筛选；未传 options.year 时与既有行为完全一致
+    primary_release_year: options.year || undefined,
+    // v3.4.0 纯增量：分类片库"2000~"这类上界年份档；未传 options.yearTo 时行为不变
+    'primary_release_date.gte': releaseDateFrom,
+    'primary_release_date.lte': releaseDateTo || options.yearTo || undefined,
+    with_origin_country: originCountry,
+    page: options.page || 1,
+    region: DEFAULT_REGION
+  };
+  const tvParams = {
+    sort_by: options.sortBy || 'popularity.desc',
+    with_genres: mapGenreParamToTv(genreValue),
+    without_genres: mapGenreParamToTv(options.withoutGenreIds),
+    'vote_count.gte': options.minVotes ?? 80,
+    'vote_average.gte': options.minRating || undefined,
+    include_adult: false,
+    // v3.4.0 纯增量：节目按首播年份筛选，同上一处、未传时行为不变
+    first_air_date_year: options.year || undefined,
+    'first_air_date.gte': releaseDateFrom,
+    'first_air_date.lte': releaseDateTo || options.yearTo || undefined,
+    with_origin_country: originCountry,
+    page: options.page || 1
+  };
+  const tasks = [];
+  if (mediaType !== 'tv') tasks.push({ mediaType: 'movie', promise: settle(tmdbFetch('/discover/movie', movieParams)) });
+  if (mediaType !== 'movie' && (!genreValue || tvParams.with_genres)) tasks.push({ mediaType: 'tv', promise: settle(tmdbFetch('/discover/tv', tvParams)) });
+  const results = await Promise.all(tasks.map((task) => task.promise));
+  if (results.length && results.every((result) => result.status === 'rejected')) throw results[0].reason;
+  const merged = results.flatMap((result, index) => {
+    if (result.status !== 'fulfilled') return [];
+    const sourceMediaType = tasks[index]?.mediaType || 'movie';
+    return (result.value.results || []).map((item) => ({ ...item, media_type: item.media_type || sourceMediaType }));
+  });
+  return compactMovies(merged, 24);
+});
+
+ipcMain.handle('tmdb:recommendByMovie', async (_event, movieId, options = {}) => {
+  const id = Number(movieId);
+  if (!id) return [];
+  const mediaType = normalizeTmdbMediaType(options.mediaType);
+  const data = await tmdbFetch(`/${mediaType}/${id}/recommendations`, { page: options.page || 1 });
+  return compactMovies(data.results, 20, mediaType);
+});
+
+ipcMain.handle('tmdb:details', async (_event, movieId, options = {}) => {
+  const id = Number(movieId);
+  if (!id) {
+    const error = new Error('Invalid TMDB id.');
+    error.code = 'INVALID_MOVIE_ID';
+    throw error;
+  }
+  const mediaType = normalizeTmdbMediaType(options.mediaType);
+  const data = await tmdbFetch(`/${mediaType}/${id}`, {
+    append_to_response: mediaType === 'tv'
+      ? 'credits,aggregate_credits,recommendations,similar,videos'
+      : 'credits,recommendations,similar,videos'
+  });
+  const tvRuntime = Array.isArray(data.episode_run_time) ? Number(data.episode_run_time[0] || 0) : 0;
+  return {
+    id: data.id,
+    mediaType,
+    title: data.title || data.name || (mediaType === 'tv' ? '未命名节目' : '未命名电影'),
+    originalTitle: data.original_title || data.original_name || '',
+    tagline: data.tagline || '',
+    overview: data.overview || '',
+    posterPath: data.poster_path || null,
+    backdropPath: data.backdrop_path || null,
+    releaseDate: data.release_date || data.first_air_date || '',
+    runtime: data.runtime || tvRuntime || 0,
+    numberOfSeasons: Number(data.number_of_seasons || 0),
+    numberOfEpisodes: Number(data.number_of_episodes || 0),
+    voteAverage: Number(data.vote_average || 0),
+    voteCount: Number(data.vote_count || 0),
+    popularity: Number(data.popularity || 0),
+    status: data.status || '',
+    homepage: data.homepage || '',
+    genres: Array.isArray(data.genres) ? data.genres : [],
+    productionCountries: Array.isArray(data.production_countries) ? data.production_countries : [],
+    spokenLanguages: Array.isArray(data.spoken_languages) ? data.spoken_languages : [],
+    cast: compactCast(mediaType === 'tv' ? (data.aggregate_credits?.cast || data.credits?.cast) : data.credits?.cast),
+    crew: compactCrew(mediaType === 'tv' ? (data.aggregate_credits?.crew || data.credits?.crew) : data.credits?.crew),
+    recommendations: compactMovies(data.recommendations?.results, 10, mediaType),
+    similar: compactMovies(data.similar?.results, 10, mediaType),
+    videos: compactVideos(data.videos?.results)
+  };
+});
+
+ipcMain.handle('resources:findMovie', async (_event, payload = {}, options = {}) => findMovieResources(payload, options));
+
+ipcMain.handle('player:getMediaProxyUrl', async (_event, url) => {
+  const target = normalizeMediaTargetUrl(url);
+  if (!target) {
+    const error = new Error('Invalid media url.');
+    error.code = 'INVALID_MEDIA_URL';
+    throw error;
+  }
+  await startMediaProxyServer();
+  return getMediaProxyUrl(target.toString());
+});
+
+ipcMain.handle('player:resolveMediaUrl', async (_event, url) => resolveMediaUrl(url));
+
+ipcMain.handle('player:getPlaybackProxyMode', () => playbackProxyGuard?.getStatus() ?? { mode: 'follow', modes: [], link: 'none' });
+
+ipcMain.handle('player:setPlaybackProxyMode', (_event, mode) => playbackProxyGuard?.setMode(mode) ?? null);
+
+ipcMain.handle('meta:getStatus', () => metaServer?.getStatus() ?? null);
+
+ipcMain.handle('window:minimize', () => enterIslandMode());
+ipcMain.handle('window:enterIsland', (_event, height) => enterIslandMode(Number(height) || 72));
+ipcMain.handle('window:expandIsland', (_event, height) => expandIslandMode(Number(height) || 320));
+ipcMain.handle('window:restoreNormal', () => restoreNormalMode());
+ipcMain.on('window:islandDragBegin', (_event, payload) => beginIslandDragMode(payload));
+ipcMain.on('window:islandDragMove', (_event, payload) => moveIslandDragMode(payload));
+ipcMain.handle('window:islandDragEnd', (_event, shouldDock = true, payload = {}) => endIslandDragMode(shouldDock, payload));
+ipcMain.handle('window:maximize', () => {
+  if (!mainWindow) return false;
+  if (windowMode !== 'normal') restoreNormalMode();
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+    return false;
+  }
+  mainWindow.maximize();
+  return true;
+});
+ipcMain.handle('window:close', () => mainWindow?.close());
+ipcMain.handle('shell:openExternal', (_event, url) => {
+  const target = String(url || '');
+  if (/^https?:\/\//i.test(target)) shell.openExternal(target);
+});
+
+function compactCast(cast = []) {
+  return cast
+    .filter((person) => person && person.name)
+    .slice(0, 8)
+    .map((person) => ({
+      id: person.id,
+      name: person.name,
+      character: person.character || person.roles?.[0]?.character || '',
+      profilePath: person.profile_path || null
+    }));
+}
+
+function compactCrew(crew = []) {
+  const wantedJobs = new Set(['Director', 'Writer', 'Screenplay', 'Creator', 'Executive Producer']);
+  return crew
+    .filter((person) => person && person.name && (wantedJobs.has(person.job) || person.jobs?.some((job) => wantedJobs.has(job.job))))
+    .slice(0, 6)
+    .map((person) => ({
+      id: person.id,
+      name: person.name,
+      job: person.job || person.jobs?.[0]?.job || ''
+    }));
+}
+
+function compactVideos(videos = []) {
+  return videos
+    .filter((video) => video.site === 'YouTube' && video.key)
+    .slice(0, 4)
+    .map((video) => ({
+      id: video.id,
+      key: video.key,
+      name: video.name,
+      type: video.type
+    }));
+}
+
+/* ================= v3.4.0 投屏（纯增量） =================
+   新增 electron/cast.cjs：SSDP 发现 DLNA MediaRenderer + 本机蓝牙只读枚举。
+   以下通道全部 try/catch 包裹，失败只让投屏面板为空，不影响既有播放链路。 */
+const castController = createCastController({
+  isWin32: process.platform === 'win32',
+  getSender: () => mainWindow,
+  openBluetoothSettings: () => {
+    const target = process.platform === 'win32'
+      ? 'ms-settings:bluetooth'
+      : 'x-apple.systempreferences:com.apple.preference.Bluetooth';
+    try {
+      shell.openExternal(target);
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  }
+});
+
+ipcMain.handle('cast:scan', () => castController.startScan());
+ipcMain.handle('cast:list', () => castController.snapshot());
+ipcMain.handle('cast:stop-search', () => castController.stopScan());
+ipcMain.handle('cast:refresh-bluetooth', () => castController.refreshBluetooth(true));
+ipcMain.handle('cast:open-bluetooth-settings', () => castController.openBluetoothSettings());
+ipcMain.handle('cast:to', async (_event, payload = {}) => {
+  try {
+    return await castController.castTo(payload.device, payload.url, payload.title);
+  } catch (error) {
+    return { ok: false, error: error?.message || '投屏失败' };
+  }
+});
+ipcMain.handle('cast:stop', async (_event, payload = {}) => {
+  try {
+    return await castController.stopCast(payload.device);
+  } catch (error) {
+    return { ok: false, error: error?.message || '停止投屏失败' };
+  }
+});
+
+
+/* ================= v3.4.0 海报兜底（纯增量） =================
+   渲染端 <img> 直连失败时（直连模式 DNS 污染、或图片重定向尚未注册），
+   由主进程复用 meta-server 的 DoH 取字节通道回传 data URL。
+   只读复用既有能力，不改动任何原有请求链路。
+*/
+const RELAY_IMAGE_HOSTS = new Set(['image.tmdb.org', 'static-1.themoviedb.org', 'media.themoviedb.org']);
+const RELAY_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+ipcMain.handle('image:relay', async (_event, payload = {}) => {
+  const target = String(payload?.url || '');
+  let host = '';
+  try {
+    const parsed = new URL(target);
+    host = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== 'https:') return { ok: false, error: '仅支持 https 图片' };
+  } catch {
+    return { ok: false, error: '无效的图片地址' };
+  }
+  if (!RELAY_IMAGE_HOSTS.has(host)) return { ok: false, error: '非海报域名' };
+  if (!metaServer || typeof metaServer.fetchImageBytes !== 'function') {
+    return { ok: false, error: '加速模块未就绪' };
+  }
+  try {
+    const result = await metaServer.fetchImageBytes(target);
+    const buffer = result?.buffer;
+    const status = Number(result?.status || 0);
+    if (status < 200 || status >= 300 || !buffer || !buffer.length) {
+      return { ok: false, error: `上游状态 ${status || 0}` };
+    }
+    if (buffer.length > RELAY_IMAGE_MAX_BYTES) return { ok: false, error: '图片过大' };
+    return {
+      ok: true,
+      contentType: result.contentType || 'image/jpeg',
+      base64: buffer.toString('base64')
+    };
+  } catch (error) {
+    return { ok: false, error: error?.message || '海报中转失败' };
+  }
+});
+
+/* ================= v3.4.0 片源手动测速（纯增量） =================
+   渲染端"片源管理"面板点一下就能量一个源的接口往返。
+   只复用既有能力：buildResourceUrl 拼地址、applyProxySetting 取当前代理、
+   defaultSession.fetch 发请求（与 resourceFetchJson 同一条通道，量出来的才是真实手感）。
+   刻意不走 resourceResponseCache —— 命中缓存的第二次测速会报出 ~0ms 的假速度。
+*/
+ipcMain.handle('resources:testWebsite', async (_event, url) => {
+  await applyProxySetting().catch(() => {});
+  return require('./studio-sources.cjs').testWebsite((input, options) => session.defaultSession.fetch(input, options), url);
+});
+
+ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
+  const key = String(payload?.key || '');
+  const apiValue = String(payload?.api || '');
+  const source = getMergedResourceSources().find(
+    (item) => (key && item.key === key) || (apiValue && item.api === apiValue)
+  );
+  if (!source) return { ok: false, error: '未找到该播放源' };
+
+  let url;
+  try {
+    // ac=list 是苹果CMS系的类别接口，正文只有几 KB，适合当连通性探针
+    url = buildResourceUrl(source, { ac: 'list' });
+  } catch {
+    return { ok: false, error: '源地址不合法' };
+  }
+
+  await applyProxySetting().catch(() => {});
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RESOURCE_TIMEOUT_MS);
+  const startedAt = Date.now();
+  try {
+    const response = await session.defaultSession.fetch(url.toString(), {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.4'
+      }
+    });
+    const elapsedMs = Date.now() - startedAt;
+    const text = await response.text().catch(() => '');
+    if (!response.ok) return { ok: false, elapsedMs, status: response.status, error: `HTTP ${response.status}` };
+    require('./studio-sources.cjs').validateResourcePayload(text);
+    const head = text.trimStart().slice(0, 1);
+    const kind = head === '<' ? 'xml' : (head === '{' || head === '[' ? 'json' : 'text');
+    return { ok: true, stage: 'catalog', elapsedMs, status: response.status, kind, bytes: text.length, checkedAt: new Date().toISOString() };
+  } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
+    const aborted = error?.name === 'AbortError' || controller.signal.aborted;
+    return {
+      ok: false,
+      elapsedMs,
+      error: aborted ? `超时 ${Math.round(RESOURCE_TIMEOUT_MS / 1000)}s` : (error?.message || '请求失败')
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
+/* ================= v3.4.1 TMDB 应用内凭证向导（纯增量） =================
+   只做 TMDB 官方的 v4 授权流：申请 request token → 用户在浏览器里点批准 →
+   换 Read Access Token → 走既有 app:saveCredential 同一份写入链路存进本机。
+   不注册账号、不过 CAPTCHA、不碰开发者表格审批。
+   没有 v3 Key 时直接回 NEED_API_KEY，由渲染层改走"打开申请页 + 剪贴板自动识别"引导。
+*/
+const { createTmdbAuthFlow, classifyCredential: classifyTmdbCredential } = require('./tmdb-auth.cjs');
+const { clipboard: tmdbClipboard } = require('electron');
+
+async function tmdbAuthFetch(url, options = {}) {
+  await applyProxySetting().catch(() => {});
+  const target = new URL(url);
+  if (options.apiKey) target.searchParams.set('api_key', String(options.apiKey));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TMDB_TIMEOUT_MS);
+  const headers = { accept: 'application/json' };
+  let body;
+  if (options.body) {
+    headers['content-type'] = 'application/json';
+    body = JSON.stringify(options.body);
+  }
+  try {
+    const response = await session.defaultSession.fetch(target.toString(), {
+      method: options.method || 'GET',
+      headers,
+      body,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const text = await response.text().catch(() => '');
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: data?.status_message || data?.status_code || `HTTP ${response.status}` };
+    }
+    return { ok: true, status: response.status, data };
+  } catch (error) {
+    const aborted = error?.name === 'AbortError' || controller.signal.aborted;
+    return { ok: false, status: 0, error: aborted ? `超时 ${Math.round(TMDB_TIMEOUT_MS / 1000)}s` : (error?.message || '请求失败') };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+const tmdbAuth = createTmdbAuthFlow({
+  fetchJson: tmdbAuthFetch,
+  openExternal: (url) => (/^https?:\/\//i.test(String(url || '')) ? shell.openExternal(String(url)) : Promise.reject(new Error('非法地址'))),
+  readCredential: () => getCredential(),
+  saveCredential: (value) => {
+    const normalized = normalizeCredential(value);
+    if (!normalized) throw new Error('TMDB 返回的凭证格式不正确');
+    const settings = readSettings();
+    settings.tmdbCredential = normalized.value;
+    writeSettings(settings);
+    clearTmdbCaches();
+    return publicCredentialState();
+  },
+});
+
+ipcMain.handle('tmdbAuth:start', async () => tmdbAuth.start().then((result) => ({ ...result })));
+ipcMain.handle('tmdbAuth:status', () => tmdbAuth.snapshot());
+ipcMain.handle('tmdbAuth:cancel', () => tmdbAuth.cancel());
+
+// 引导路径用：用户在 TMDB 页面复制密钥后回到应用，渲染层轮询这里，识别到就自动填入保存。
+// 只在向导处于"等粘贴"阶段被调用，平时不读剪贴板。
+ipcMain.handle('tmdbAuth:clipboard', () => {
+  let text = '';
+  try { text = tmdbClipboard.readText() || ''; } catch { return { found: false }; }
+  const hit = classifyTmdbCredential(text);
+  if (!hit) return { found: false };
+  const normalized = normalizeCredential(hit.value);
+  const settings = readSettings();
+  settings.tmdbCredential = normalized.value;
+  writeSettings(settings);
+  clearTmdbCaches();
+  return { found: true, type: normalized.type, state: publicCredentialState() };
+});
+
+/* ---- v3.4.2 增补：剪贴板凭证"先校验再落盘"（纯增量，上面那个 handler 原样保留） ----
+   原来的 tmdbAuth:clipboard 只做格式匹配：32 位十六进制就算命中，于是剪贴板里任意一段
+   MD5/序列号都会被当成 API Key 写进 settings.json，徽标显示"API Key"但首页照样全空。
+   这里多走一步 GET /3/configuration 真校验：401 直接回报"无效/已吊销"，不落盘。
+   同一段粘贴内容只校验一次，避免引导期 800ms 一轮把 TMDB 打成限流。 */
+let tmdbGrabReject = { value: '', error: '' };
+
+async function tmdbVerifyCredential(hit) {
+  if (!hit?.value) return { ok: false, error: '没有可校验的凭证' };
+  await applyProxySetting().catch(() => {});
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TMDB_TIMEOUT_MS);
+  try {
+    const target = new URL('https://api.themoviedb.org/3/configuration');
+    const headers = { accept: 'application/json' };
+    if (hit.type === 'apiKey') target.searchParams.set('api_key', hit.value);
+    else headers.authorization = `Bearer ${hit.value}`;
+    const response = await session.defaultSession.fetch(target.toString(), {
+      headers,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const text = await response.text().catch(() => '');
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (!response.ok) {
+      const fallback = response.status === 401
+        ? 'TMDB 判定这把密钥无效（已吊销，或复制时缺了字符）'
+        : (data?.status_message || `HTTP ${response.status}`);
+      return { ok: false, status: response.status, error: fallback };
+    }
+    return { ok: true, imagesBaseUrl: data?.images?.secure_base_url || '' };
+  } catch (error) {
+    const aborted = error?.name === 'AbortError' || controller.signal.aborted;
+    return { ok: false, error: aborted ? `校验超时 ${Math.round(TMDB_TIMEOUT_MS / 1000)}s` : (error?.message || '校验请求失败') };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+ipcMain.handle('tmdbAuth:grab', async () => {
+  let text = '';
+  try { text = tmdbClipboard.readText() || ''; } catch { return { found: false }; }
+  const hit = classifyTmdbCredential(text);
+  if (!hit) return { found: false };
+  if (tmdbGrabReject.value === hit.value) {
+    return { found: true, type: hit.type, valid: false, error: tmdbGrabReject.error, cached: true };
+  }
+  const verdict = await tmdbVerifyCredential(hit);
+  if (!verdict.ok) {
+    tmdbGrabReject = { value: hit.value, error: verdict.error || '校验未通过' };
+    return { found: true, type: hit.type, valid: false, error: verdict.error || '校验未通过' };
+  }
+  tmdbGrabReject = { value: '', error: '' };
+  const normalized = normalizeCredential(hit.value);
+  const settings = readSettings();
+  settings.tmdbCredential = normalized.value;
+  writeSettings(settings);
+  clearTmdbCaches();
+  return { found: true, type: normalized.type, valid: true, state: publicCredentialState() };
+});
+
+/* ================= v3.4.2 播放源强过滤 + 轮询提速（纯增量） =================
+   两件事都只在基线返回值外面套一层，不改基线的解析、打分与轮询实现：
+   ① 提速：基线一批最多 4 个源（findMovieResources 把 limit 夹在 1..4），mode=full 有 8 个源
+      就要跑 3 批，渲染端每批之间还 setTimeout 90ms。这里一次把全部源并行拉完并直接标 done，
+      渲染端一次调用就拿到齐的结果；同一部片 60s 内再开介绍页直接命中合并缓存。
+   ② 过滤：标题强一致是主判据（实测《寄生虫》混进「寄生虫保姆」、《不择手段》混进
+      「假名媛她不择手段」都是标题不一致），类型与年份只作辅助；判据不足一律放行。
+*/
+const { filterResources } = require('./resource-type-filter.cjs');
+
+const RESOURCE_FAST_TTL_MS = 60 * 1000;
+const RESOURCE_FAST_MAX = 24;
+const RESOURCE_BATCH = 4;
+const resourceFastCache = new Map();
+
+function resourceFastKey(payload = {}) {
+  const revision = Number(readSettings().resourceConfigRevision || 0);
+  return [
+    revision,
+    String(payload.mediaType || 'movie'),
+    String(payload.title || '').trim(),
+    String(payload.originalTitle || '').trim(),
+    String(payload.year || payload.releaseDate || '').slice(0, 4)
+  ].join('|');
+}
+
+// 一次调用把全部源并行拉完：第一批拿 total，剩下的批次并发补齐。任何一批抛错都只是少几个源。
+async function gatherAllSources(payload) {
+  const first = await findMovieResources(payload, { cursor: 0, limit: RESOURCE_BATCH });
+  if (!first) return null;
+  const total = Number(first.total || 0);
+  const resources = Array.isArray(first.resources) ? first.resources.slice() : [];
+  const rest = [];
+  for (let cursor = RESOURCE_BATCH; cursor < total; cursor += RESOURCE_BATCH) {
+    rest.push(findMovieResources(payload, { cursor, limit: RESOURCE_BATCH }));
+  }
+  const parts = await Promise.all(rest.map((promise) => promise.catch(() => null)));
+  for (const part of parts) {
+    if (Array.isArray(part?.resources)) resources.push(...part.resources);
+  }
+  return { first, total, resources };
+}
+
+ipcMain.handle('resources:findMovieFiltered', async (_event, payload = {}, options = {}) => {
+  const mediaType = String(payload?.mediaType || 'movie').toLowerCase() === 'tv' ? 'tv' : 'movie';
+  const key = resourceFastKey(payload);
+  const cached = resourceFastCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return { ...cached.result, prewarmed: true };
+
+  let gathered = null;
+  try {
+    gathered = await gatherAllSources(payload);
+  } catch {
+    gathered = null;
+  }
+  // 并行链路任何意外都退回基线单次调用，行为与上一版一致
+  if (!gathered) {
+    const fallback = await findMovieResources(payload, options);
+    const fb = filterResources(fallback.resources, payload);
+    return { ...fallback, resources: fb.resources, filteredOut: fb.dropped.length, dropped: fb.dropped };
+  }
+
+  const { resources, dropped } = filterResources(gathered.resources, payload);
+  if (dropped.length) {
+    console.log(`[资源过滤] ${mediaType} · ${String(payload.title || '').trim()} · 丢弃 ${dropped.length} 条：${dropped.map((d) => `${d.sourceName}/${d.title}(${d.reason})`).join(' , ').slice(0, 300)}`);
+  }
+  const result = {
+    ...gathered.first,
+    resources,
+    checked: gathered.total || gathered.first.checked,
+    nextCursor: gathered.total || 0,
+    done: true,
+    batches: 1,
+    filteredOut: dropped.length,
+    dropped
+  };
+  if (result.resources.length) {
+    resourceFastCache.set(key, { expiresAt: Date.now() + RESOURCE_FAST_TTL_MS, result });
+    if (resourceFastCache.size > RESOURCE_FAST_MAX) {
+      const now = Date.now();
+      for (const [cacheKey, entry] of resourceFastCache) {
+        if (entry.expiresAt <= now) resourceFastCache.delete(cacheKey);
+      }
+      while (resourceFastCache.size > RESOURCE_FAST_MAX) {
+        resourceFastCache.delete(resourceFastCache.keys().next().value);
+      }
+    }
+  }
+  return result;
+});
+
+/* ================= v3.4.2 播放首帧深度预热（纯增量，第二轮加强） =================
+   上一版只预跑了 resolve + 一发 Range: bytes=0-1，实测三段链里"清单 + 首分片"仍要 1~2.5s。
+   关键发现：基线 proxyMediaRequest 调 session.defaultSession.fetch 时**没有传 cache 参数**
+   （main.cjs:1798），也就是走 Chromium 默认缓存模式 —— 只要我用与它一致的头、同样的默认缓存
+   模式先把清单和首分片取回来，播放器再请求同一条 URL 就有机会直接命中会话 HTTP 缓存。
+   所以这一版把预热做成"把起播要用的字节真的先取回来"：
+     ① resolveMediaUrl —— 填基线 mediaResolveCache，share 线路省掉整页 HTML 解析
+     ② 清单本体（几十 KB，必取，且必进缓存）
+     ③ #EXT-X-KEY 的 URI —— 密钥不预热就是一次串行往返
+     ④ 前 2 个分片 —— 只在 content-length 已知且 ≤4MB 时取，避免误拉大文件
+     ⑤ 非 m3u8 的直链 —— 只发 Range 前 256KB，热 DNS/TLS 与边缘节点（部分响应不入缓存，
+        这一档只能省掉握手，省不掉源站 TTFB）
+   深度预热很贵，只给"最可能被点的那条"：介绍页第一条 + 鼠标悬停的那条，单次调用最多 2 条。
+   全程 best-effort：任何一步失败都只是少预热一点，绝不影响真实播放链路。
+*/
+const MEDIA_WARM_TIMEOUT_MS = 8000;
+const MEDIA_WARM_SEGMENT_MAX_BYTES = 4 * 1024 * 1024;
+const MEDIA_WARM_SEGMENTS = 2;
+const MEDIA_WARM_DEEP_MAX = 2;
+const MEDIA_PREWARM_TTL_MS = 4 * 60 * 1000;
+const mediaPrewarmSeen = new Map();
+
+// 与基线 proxyMediaRequest 完全一致的头：会话 HTTP 缓存按 URL(+Vary) 命中，头不对就白热
+function mediaWarmHeaders(sourceUrl) {
+  const headers = {
+    accept: '*/*',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0'
+  };
+  try {
+    headers.referer = `${new URL(sourceUrl).origin}/`;
+  } catch {
+    /* 源地址异常就不带 referer，让上游按默认处理 */
+  }
+  return headers;
+}
+
+async function mediaWarmGet(url, headers, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MEDIA_WARM_TIMEOUT_MS);
+  try {
+    const response = await session.defaultSession.fetch(url, {
+      method: options.method || 'GET',
+      headers: options.range ? { ...headers, range: options.range } : headers,
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    const length = Number(response.headers.get('content-length') || 0);
+    if (options.maxBytes && (!length || length > options.maxBytes)) {
+      try { await response.body?.cancel?.(); } catch { /* 取消失败无所谓 */ }
+      return { skipped: true, status: response.status };
+    }
+    const contentType = String(response.headers.get('content-type') || '');
+    if (options.wantText || contentType.toLowerCase().includes('mpegurl') || /\.m3u8(\?|$)/i.test(url)) {
+      const text = await response.text().catch(() => '');
+      return { text, status: response.status, finalUrl: response.url || url };
+    }
+    const buffer = await response.arrayBuffer().catch(() => null);
+    return { bytes: buffer ? buffer.byteLength : 0, status: response.status, finalUrl: response.url || url };
+  } catch (error) {
+    return { error: error?.name === 'AbortError' ? 'timeout' : String(error?.message || error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 拆 HLS 清单：密钥 URI、分片 URI、是不是主清单（变体还要再跳一层）
+function parseHlsManifest(manifest, baseUrl) {
+  const keys = [];
+  const uris = [];
+  let isMaster = false;
+  for (const rawLine of String(manifest || '').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^#EXT-X-STREAM-INF/i.test(line)) { isMaster = true; continue; }
+    if (/^#EXT-X-KEY/i.test(line)) {
+      const uri = /URI="([^"]+)"/.exec(line);
+      if (uri) keys.push(uri[1]);
+      continue;
+    }
+    if (line.startsWith('#')) continue;
+    uris.push(line);
+  }
+  const absolute = (value) => {
+    try {
+      return new URL(value, baseUrl).toString();
+    } catch {
+      return '';
+    }
+  };
+  return { isMaster, keys: keys.map(absolute).filter(Boolean), uris: uris.map(absolute).filter(Boolean) };
+}
+
+async function deepWarmMedia(rawUrl) {
+  const startedAt = Date.now();
+  const resolved = await resolveMediaUrl(rawUrl).catch(() => null);
+  let target = String(resolved?.url || '').trim();
+  const stats = { resolveMs: Date.now() - startedAt, kind: String(resolved?.kind || ''), manifestBytes: 0, keys: 0, segmentBytes: 0, note: '' };
+  if (!/^https?:\/\//i.test(target)) { stats.note = '无可用地址'; return stats; }
+
+  // 主清单 → 媒体清单，最多两跳
+  for (let hop = 0; hop < 2; hop += 1) {
+    const looksHls = /\.m3u8(\?|$)/i.test(target) || hop === 0;
+    if (!looksHls) break;
+    const got = await mediaWarmGet(target, mediaWarmHeaders(target), { wantText: true });
+    if (got.error) { stats.note = `清单 ${got.error}`; return stats; }
+    if (!got.text) { stats.note = '清单为空'; return stats; }
+    const parsed = parseHlsManifest(got.text, got.finalUrl || target);
+    if (parsed.isMaster) {
+      stats.manifestBytes += got.text.length;
+      target = parsed.uris[0] || '';
+      if (!target) { stats.note = '主清单无变体'; return stats; }
+      continue; // 再跳一次取真正的媒体清单
+    }
+    stats.manifestBytes += got.text.length;
+    for (const keyUrl of parsed.keys.slice(0, 1)) {
+      const warmed = await mediaWarmGet(keyUrl, mediaWarmHeaders(keyUrl), {});
+      if (!warmed.error && !warmed.skipped) stats.keys += 1;
+    }
+    for (const segmentUrl of parsed.uris.slice(0, MEDIA_WARM_SEGMENTS)) {
+      const warmed = await mediaWarmGet(segmentUrl, mediaWarmHeaders(segmentUrl), { maxBytes: MEDIA_WARM_SEGMENT_MAX_BYTES });
+      if (warmed.bytes) stats.segmentBytes += warmed.bytes;
+    }
+    stats.note = `分片 ${stats.segmentBytes ? Math.round(stats.segmentBytes / 1024) : 0}KB`;
+    return stats;
+  }
+
+  // 非 HLS 直链：只发一小段 Range，热连接与边缘节点（部分响应不进缓存，这里只省握手）
+  const got = await mediaWarmGet(target, mediaWarmHeaders(target), { range: 'bytes=0-262143' });
+  stats.note = got.error ? `直链 ${got.error}` : '直链已热连接';
+  return stats;
+}
+
+ipcMain.handle('media:prewarm', async (_event, payload = {}) => {
+  const input = Array.isArray(payload) ? { urls: payload } : (payload || {});
+  const list = Array.isArray(input.urls)
+    ? input.urls.map((url) => String(url || '').trim()).filter((url) => /^https?:\/\//i.test(url))
+    : [];
+  const now = Date.now();
+  const fresh = [];
+  let deepWanted = Math.max(0, Math.min(MEDIA_WARM_DEEP_MAX, Number(input.deepCount) || 0));
+  for (const url of list) {
+    const seen = mediaPrewarmSeen.get(url);
+    if (seen && now - seen.at < MEDIA_PREWARM_TTL_MS) {
+      // 之前只浅热过（连接/清单），这次要深度热：允许升级，别因为"见过"就整个跳过
+      if (deepWanted > 0 && !seen.deep) {
+        mediaPrewarmSeen.set(url, { at: now, deep: true });
+        fresh.push(url);
+        deepWanted -= 1;
+        if (fresh.length >= 8) break;
+      }
+      continue;
+    }
+    const willDeep = deepWanted > 0;
+    mediaPrewarmSeen.set(url, { at: now, deep: willDeep });
+    fresh.push(url);
+    if (willDeep) deepWanted -= 1;
+    if (fresh.length >= 8) break;
+  }
+  if (mediaPrewarmSeen.size > 400) {
+    for (const [url, entry] of mediaPrewarmSeen) {
+      if (now - entry.at > MEDIA_PREWARM_TTL_MS) mediaPrewarmSeen.delete(url);
+    }
+  }
+  if (!fresh.length) return { queued: 0 };
+
+  const deep = fresh.filter((url) => mediaPrewarmSeen.get(url)?.deep);
+  const shallow = fresh.filter((url) => !deep.includes(url));
+  if (deep.length) console.log(`[首帧预热] 深度排队 ${deep.length} 条：${String(deep[0]).slice(0, 60)}`);
+  // 深度预热是串行链（resolve→清单→密钥→分片），一次只跑一条，别把源站打死
+  (async () => {
+    for (const url of deep) {
+      const stats = await deepWarmMedia(url).catch(() => null);
+      if (stats) console.log(`[首帧预热] ${String(url).slice(0, 60)} resolve=${stats.resolveMs}ms kind=${stats.kind} 清单=${stats.manifestBytes}B key=${stats.keys} ${stats.note}`);
+    }
+  })().catch(() => {});
+  (async () => {
+    await applyProxySetting().catch(() => {});
+    const startedAt = Date.now();
+    // 浅热只是热 DNS/TLS/边缘节点，一条要 1~3 秒，串行会拖到十几秒 → 三路并发
+    const queue = shallow.slice();
+    const workers = [];
+    for (let i = 0; i < Math.min(3, queue.length); i += 1) {
+      workers.push((async () => {
+        while (queue.length) {
+          const url = queue.shift();
+          await mediaWarmGet(url, mediaWarmHeaders(url), { range: 'bytes=0-262143' }).catch(() => null);
+        }
+      })().catch(() => {}));
+    }
+    await Promise.all(workers);
+    if (shallow.length) console.log(`[首帧预热] 浅热 ${shallow.length} 条连接 ${Date.now() - startedAt}ms`);
+  })().catch(() => {});
+  return { queued: fresh.length, deep: deep.length };
+});
+
+/* ================= v3.4.2 豆瓣元数据（纯增量，学习 LibreTV 的公开接口用法） =================
+   四个只读通道：热门列表 / 片名联想 / 条目摘要 / 海报匹配，外加一个图片中转
+   （豆瓣图片 CDN 无 Referer 返回 418、错误 Referer 返回 403，必须主进程带对头去取）。
+   全部走 defaultSession（继承应用代理）并带 10 分钟缓存；失败只返回 { ok:false }，不抛。
+*/
+const { createDoubanProvider } = require('./douban.cjs');
+let doubanProvider = null;
+function doubanClient() {
+  if (!doubanProvider) {
+    doubanProvider = createDoubanProvider({ session, cacheDir: path.join(app.getPath('userData'), 'cf8-douban') });
+  }
+  return doubanProvider;
+}
+const doubanSafe = (promise) => promise.catch((error) => ({ ok: false, error: String(error?.message || error) }));
+
+ipcMain.handle('douban:hot', (_event, payload = {}) => doubanSafe(doubanClient().hot(payload)));
+ipcMain.handle('douban:suggest', (_event, query) => doubanSafe(doubanClient().suggest(query)));
+ipcMain.handle('douban:search', (_event, payload = {}) => doubanSafe(doubanClient().search(payload)));
+ipcMain.handle('douban:subject', (_event, payload = {}) => doubanSafe(doubanClient().subject(payload)));
+ipcMain.handle('douban:poster', (_event, payload = {}) => doubanSafe(doubanClient().poster(payload)));
+ipcMain.handle('douban:image', (_event, payload = {}) => doubanSafe(doubanClient().image(payload)));
+
+/* ================= v3.4.3 纯增量：every.film 开放元数据（海报 / 上游 id 解析兜底） =================
+   两个只读通道：search（中文片名 → 记录 + 海报）与 lookup（再取 detail 拿 tmdb/imdb/douban id）。
+   全部走 defaultSession（继承应用代理），单道闸串行 + 最小间隔 420ms + 429 按 Retry-After 退避 + 结果缓存；
+   失败只返回 { ok:false }，不抛。遵守该站 API 使用条款：读取无需密钥、渲染层负责署名与回链。
+*/
+const { createEveryfilmProvider } = require('./everyfilm.cjs');
+let everyfilmProvider = null;
+function everyfilmClient() {
+  if (!everyfilmProvider) everyfilmProvider = createEveryfilmProvider({ session });
+  return everyfilmProvider;
+}
+const everyfilmSafe = (promise) => promise.catch((error) => ({ ok: false, error: String(error?.message || error) }));
+
+ipcMain.handle('everyfilm:search', (_event, payload = {}) => everyfilmSafe(everyfilmClient().search(payload)));
+ipcMain.handle('everyfilm:detail', (_event, payload = {}) => everyfilmSafe(everyfilmClient().detail(payload)));
+ipcMain.handle('everyfilm:lookup', (_event, payload = {}) => everyfilmSafe(everyfilmClient().lookup(payload)));
+ipcMain.handle('everyfilm:image', (_event, payload = {}) => everyfilmSafe(everyfilmClient().image(payload)));
+
+/* ================= v3.4.3 第三十一轮纯增量：无凭证兜底时保留一条可播线路（如意资源） =================
+   豆瓣条目没有 TMDB id，基线的详情/资源链路进不去，所以摘要卡下面只能显示"播放需 TMDB 凭证"。
+   这里补一条：按片名 + 年份直接问一次**应用本来就内置**的"如意资源"（RESOURCE_SOURCES 里 key='ruyi'
+   那条，api / modes 一字未改），复用基线自己的 searchResourceSource（含候选打分、详情回灌、线路解析），
+   拿回来的就是详情页同一种 compact 资源对象；再过一遍第十五轮的 filterResources，
+   媒体类型判断与详情页完全一致（电影卡不会给出 61 集的短剧）。
+   只读、单源、不新增任何播放实现：播放器 / resolve / 代理 / 预热全部走基线原有链路。
+*/
+const RUYI_FALLBACK_SOURCE = RESOURCE_SOURCES.find((source) => source.key === 'ruyi') || null;
+const RUYI_FALLBACK_TTL_MS = 10 * 60 * 1000;
+const RUYI_FALLBACK_CANDIDATES = 4;
+const ruyiFallbackCache = new Map();
+
+// 基线的 searchResourceSource 命中第一条就打止，而"某某[电影解说]"与正片归一化后同名、分数一样，
+// 于是它可能先返回被第十五轮判掉的那条。这里沿用同一批函数，但把 filter 挪进循环里：
+// 逐条候选"回灌详情 → compact → 媒体类型判断"，拿第一条通过的为止。
+async function ruyiFallbackResource(query) {
+  const titles = uniqueResourceQueries(query).slice(0, 2);
+  const year = releaseYearOf(query);
+  for (const title of titles) {
+    let list = [];
+    try {
+      const data = await resourceFetchJson(RUYI_FALLBACK_SOURCE, { ac: 'videolist', wd: title });
+      list = Array.isArray(data?.list) ? data.list : [];
+    } catch {
+      continue;
+    }
+    const ranked = list
+      .map((item) => ({ item, score: resourceCandidateScore(item, titles, year) }))
+      .filter((entry) => entry.score >= 44)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, RUYI_FALLBACK_CANDIDATES);
+    for (const { item } of ranked) {
+      try {
+        const hydrated = await hydrateResourceDetail(RUYI_FALLBACK_SOURCE, item);
+        const compact = compactResourceItem(RUYI_FALLBACK_SOURCE, hydrated, query);
+        if (!compact) continue;
+        const { resources, dropped } = filterResources([compact], query);
+        if (dropped.length) {
+          console.log(`[兜底播放源] 丢弃 ${dropped.map((d) => `${d.title}(${d.reason})`).join(' , ').slice(0, 160)}`);
+        }
+        if (resources.length) return resources[0];
+      } catch {
+        // 单条候选失败就下一条
+      }
+    }
+  }
+  return null;
+}
+
+ipcMain.handle('douban:playSource', async (_event, payload = {}) => {
+  const title = String(payload?.title || '').trim();
+  if (!RUYI_FALLBACK_SOURCE) return { ok: false, error: '没有内置的兜底播放源' };
+  if (title.length < 2) return { ok: false, error: '片名太短' };
+  const settings = publicResourceSettings();
+  if (!settings.enabled) return { ok: false, error: '外部源已关闭', disabled: true };
+  const mediaType = String(payload?.mediaType || '').toLowerCase() === 'tv' ? 'tv' : 'movie';
+  const query = {
+    title,
+    originalTitle: String(payload?.originalTitle || title).trim(),
+    year: String(payload?.year || ''),
+    releaseDate: String(payload?.releaseDate || ''),
+    mediaType,
+  };
+  const key = `${mediaType}:${query.title}:${query.originalTitle}:${query.year}`;
+  const cached = ruyiFallbackCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  try {
+    const resource = await ruyiFallbackResource(query);
+    if (!resource) return { ok: false, error: '如意资源没有匹配到这部' };
+    const value = { ok: true, sourceKey: RUYI_FALLBACK_SOURCE.key, sourceName: RUYI_FALLBACK_SOURCE.name, resource };
+    ruyiFallbackCache.set(key, { expiresAt: Date.now() + RUYI_FALLBACK_TTL_MS, value });
+    if (ruyiFallbackCache.size > 60) ruyiFallbackCache.delete(ruyiFallbackCache.keys().next().value);
+    return value;
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+/* ================= v3.4.4 纯增量：GitHub Release 检查 / 直连下载 / 一键覆盖安装 =================
+   查询与下载都在 electron/updater.cjs 里（node:https 直连：api.github.com 走本机代理会被
+   共用出口 IP 判成 API 限流，实测直连 200 / 代理 403）。这里只做通道与收尾：
+   - update:check    只读，返回当前版本、最新正式版、本机该下哪个包（按平台/架构挑）
+   - update:download 流式下载到 userData/updates，边下边通过 update:progress 推给渲染层
+   - update:install  Windows 静默跑 NSIS 安装包（/S、per-user、不弹 UAC），随后退出应用让安装器覆盖
+   - update:reveal   其它平台或不支持静默安装时，把下载好的文件在资源管理器里打开
+   已有的播放 / 资源 / 凭证链路一行未改。
+*/
+const { createUpdater } = require('./updater.cjs');
+let updaterClient = null;
+function updaterClientSafe() {
+  if (!updaterClient) updaterClient = createUpdater({ app, session });
+  return updaterClient;
+}
+
+ipcMain.handle('update:check', async (_event, payload = {}) => {
+  try {
+    return await updaterClientSafe().check(payload);
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('update:download', async (_event, payload = {}) => {
+  try {
+    return await updaterClientSafe().download(payload);
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('update:install', async (_event, payload = {}) => {
+  const client = updaterClientSafe();
+  const result = client.install(payload);
+  if (result?.ok) {
+    // 给安装器一点时间起来，然后退出自己，让它能覆盖 win-unpacked / 已安装目录里的文件
+    setTimeout(() => {
+      try { app.quit(); } catch { /* 退出失败也无所谓，安装器会等 */ }
+    }, 900);
+  }
+  return result;
+});
+
+ipcMain.handle('update:reveal', async (_event, payload = {}) => {
+  const dir = updaterClientSafe().dir;
+  const target = String(payload?.path || '');
+  try {
+    if (target && path.dirname(target) === dir) shell.showItemInFolder(target);
+    else if (dir) shell.openPath(dir);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});

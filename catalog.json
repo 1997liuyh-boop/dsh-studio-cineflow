@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "name": "dsh-studio-cineflow",
+  "version": "0.1.0",
+  "kind": "studio",
+  "packages": [
+    {
+      "id": "cineflow",
+      "path": "studios/cineflow"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "cineflow",
+  "name": "影音工作室",
+  "icon": "🎞️",
+  "description": "CineFlow：电影节目发现、片源管理、播放续播与局域网投屏",
+  "order": 15,
+  "entry": "/studio-projects/cineflow",
+  "capabilities": [
+    "local-service",
+    "media-playback"
+  ],
+  "compatibility": {
+    "host": "0.2.1-rc.2",
+    "runtime": "^0.5.0",
+    "worktable": "^0.6.0"
+  },
+  "service": {
+    "windows": "scripts/start.ps1"
+  }
+}

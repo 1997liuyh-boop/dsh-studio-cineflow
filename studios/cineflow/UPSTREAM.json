@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/incldue/CineFlow",
+  "commit": "b32fd8a6ba43dcde4494b7487ebf5d949f65a306",
+  "version": "3.4.4",
+  "license": "MIT",
+  "source": "app",
+  "adaptation": [
+    "app/electron/studio-bridge.cjs",
+    "app/electron/studio-browser.js",
+    "app/electron/studio-resource-payload.cjs",
+    "app/src/studio-embedded.css",
+    "app/src/renderer.js",
+    "app/src/incremental-pages.js",
+    "app/src/page-transition.js",
+    "app/src/library-page.js",
+    "app/index.html",
+    "sources.json",
+    "patches/cineflow-studio.patch"
+  ],
+  "note": "main.cjs 添加嵌入启动和首次片源导入；styles.css 修复 transition 的非法 important 位置"
+}

@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' https://image.tmdb.org http://127.0.0.1:* data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http: https:; media-src 'self' http: https: blob: data:; worker-src 'self' blob:;"
+    />
+    <title>CineFlow</title>
+  </head>
+  <body class="splash-active">
+    <div id="app">
+      <div id="splash" class="splash-screen" aria-label="CineFlow 启动加载页">
+        <canvas id="splashCanvas" class="splash-canvas" aria-hidden="true"></canvas>
+        <div class="splash-bg-noise"></div>
+
+        <div class="splash-content">
+          <div class="splash-wordmark" aria-label="CineFlow">
+            <span class="splash-word-cine">C<span class="splash-word-i" aria-hidden="true"></span>ne</span>
+            <span class="splash-word-flow">Fl<span class="splash-word-o">o</span>w</span>
+          </div>
+          <div class="splash-signal-line"></div>
+          <div class="splash-sub">private cinema flow</div>
+          <div id="splashStatus" class="splash-enter" aria-live="polite">正在装载今日片单</div>
+        </div>
+      </div>
+
+      <div class="ambient ambient-a"></div>
+      <div class="ambient ambient-b"></div>
+      <button id="islandDockHandle" class="island-dock-handle" type="button" aria-label="拉出灵动岛">
+        <span>‹</span>
+        <em>拉出</em>
+      </button>
+      <header class="titlebar">
+        <div class="brand drag-region" aria-label="CineFlow">
+          <div class="brand-mark">CF</div>
+          <div>
+            <strong>CineFlow</strong>
+            <span>每日电影/节目推荐</span>
+          </div>
+        </div>
+
+        <label class="search-box" for="globalSearch">
+          <span class="search-icon">⌕</span>
+          <select id="searchMode" class="search-mode" aria-label="搜索方式">
+            <option value="title">片名搜索</option>
+            <option value="exact">精确片名</option>
+            <option value="recommend">智能推荐</option>
+          </select>
+          <input id="globalSearch" type="search" aria-label="电影、剧集或动漫名称" placeholder="搜索电影、剧集或动漫" autocomplete="off" />
+          <button id="clearSearchBtn" class="ghost-button clear-search" type="button" title="清空搜索">×</button>
+          <button id="islandRestoreBtn" class="ghost-button island-restore-button" type="button" title="展开回主窗口" aria-label="展开回主窗口">
+            <span class="restore-dot" aria-hidden="true"></span>
+            <span class="restore-label">展开</span>
+            <span class="restore-arrow" aria-hidden="true">↗</span>
+          </button>
+        </label>
+
+        <div class="top-actions">
+          <button id="refreshBtn" class="ghost-button" type="button" title="刷新推荐">↻</button>
+          <button id="favoritesBtn" class="ghost-button favorites-button" type="button" title="我的收藏">♥ 收藏<span id="favoritesCount" class="favorites-count" hidden></span></button>
+          <button id="settingsBtn" class="ghost-button" type="button" title="TMDB 与片源配置" aria-label="TMDB 与片源配置">⚙ TMDB 配置</button>
+        </div>
+
+        <div class="window-controls">
+          <button id="minBtn" type="button" aria-label="最小化">—</button>
+          <button id="maxBtn" type="button" aria-label="最大化">□</button>
+          <button id="closeBtn" type="button" aria-label="关闭">×</button>
+        </div>
+      </header>
+
+      <main class="app-shell">
+        <section id="statusBanner" class="status-banner is-hidden"></section>
+
+        <section id="heroSection" class="hero-section">
+          <div class="hero-copy">
+            <p class="eyebrow">今日片单</p>
+            <h1 id="dailyTitle">正在整理今天适合你的电影/节目</h1>
+            <p id="dailyOverview" class="hero-overview">加载影视信息中...</p>
+            <div id="dailyMeta" class="meta-row"></div>
+            <div class="hero-actions">
+              <button id="dailyDetailBtn" class="primary-button" type="button">查看介绍</button>
+              <button id="dailyLikeBtn" class="secondary-button" type="button">加入偏好</button>
+            </div>
+          </div>
+          <div class="hero-poster-wrap">
+            <div id="heroBackdrop" class="hero-backdrop"></div>
+            <div id="dailyPoster" class="hero-poster poster-placeholder">CineFlow</div>
+          </div>
+        </section>
+
+        <section id="searchSection" class="content-section is-hidden">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Search</p>
+              <h2 id="searchTitle">搜索推荐</h2>
+            </div>
+            <div class="section-tools">
+              <span id="searchHint" class="section-hint"></span>
+              <button id="searchMoreBtn" class="rail-more-button" type="button" hidden>显示更多</button>
+            </div>
+          </div>
+          <div id="searchRail" class="movie-rail"></div>
+        </section>
+
+        <section class="content-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Styles</p>
+              <h2>电影/节目风格入口</h2>
+            </div>
+            <span class="section-hint">点击风格探索同类电影/节目</span>
+          </div>
+          <div id="styleRail" class="style-rail"></div>
+        </section>
+
+        <section class="content-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">For You</p>
+              <h2>根据你的喜好推荐</h2>
+            </div>
+            <div class="section-tools">
+              <span id="profileHint" class="section-hint">点击、收藏和搜索会影响这里</span>
+              <button id="personalizedMoreBtn" class="rail-more-button" type="button" hidden>显示更多</button>
+            </div>
+          </div>
+          <div id="personalizedRail" class="movie-rail"></div>
+        </section>
+
+        <section class="content-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Trending</p>
+              <h2>正在热映与高分片单</h2>
+            </div>
+            <div class="section-tools">
+              <span class="section-hint">每日自动更新</span>
+              <button id="trendingMoreBtn" class="rail-more-button" type="button" hidden>显示更多</button>
+            </div>
+          </div>
+          <div id="trendingRail" class="movie-rail"></div>
+        </section>
+      </main>
+
+      <aside id="favoritesPanel" class="favorites-panel" aria-hidden="true">
+        <button id="favoritesPullBtn" class="favorites-pull-handle" type="button" aria-label="拉出收藏页">
+          <span>›</span>
+          <em>收藏</em>
+        </button>
+        <div class="favorites-content">
+          <div class="favorites-header">
+            <p class="eyebrow">收藏</p>
+            <h3>我的收藏</h3>
+          </div>
+          <div id="favoritesList" class="favorites-list"></div>
+        </div>
+      </aside>
+
+      <aside id="detailPanel" class="detail-panel" aria-hidden="true">
+        <button id="detailCloseBtn" class="detail-pull-handle" type="button" aria-label="拉出电影/节目介绍页">
+          <span>‹</span>
+          <em>拉出</em>
+        </button>
+        <div id="detailContent" class="detail-content"></div>
+      </aside>
+
+      <div id="castPanel" class="cast-panel" aria-hidden="true">
+        <div id="castBackdrop" class="cast-backdrop"></div>
+        <section class="cast-modal-card" role="dialog" aria-modal="true" aria-labelledby="castTitle">
+          <button id="castCloseBtn" class="panel-close" type="button" aria-label="关闭投屏">×</button>
+          <div class="cast-header">
+            <p class="eyebrow">CAST</p>
+            <h3 id="castTitle">投屏到设备</h3>
+            <button id="castRescanBtn" class="ghost-button cast-rescan" type="button" title="重新搜索设备" aria-label="重新搜索设备"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.8 12.8 16.5 16.5" /></svg></button>
+          </div>
+          <p id="castNowPlaying" class="cast-now-playing" hidden></p>
+          <div class="cast-section-title">DLNA / 电视接收器</div>
+          <div id="castDlnaList" class="cast-list cast-list-scroll"></div>
+          <div class="cast-section-title">
+            <span>无线显示器 / 扩展坞（蓝牙）</span>
+            <button id="castBluetoothSettingsBtn" class="cast-link-btn" type="button">蓝牙设置 ›</button>
+          </div>
+          <div id="castBluetoothList" class="cast-list"></div>
+          <p id="castHint" class="cast-hint" hidden></p>
+        </section>
+      </div>
+
+      <div id="settingsModal" class="modal-backdrop is-hidden" aria-hidden="true">
+        <section class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+          <button id="settingsCloseBtn" class="panel-close" type="button" aria-label="关闭设置">×</button>
+          <p class="eyebrow">Settings</p>
+          <h2 id="settingsTitle">TMDB 数据源配置</h2>
+          <div class="settings-scroll">
+            <div id="settingsState" class="settings-state"></div>
+            <label class="settings-label" for="apiCredentialInput">手动配置 TMDB（令牌或密钥）</label>
+            <div class="credential-entry">
+              <input id="apiCredentialInput" class="settings-input" type="password" autocomplete="off" spellcheck="false" aria-describedby="manualCredentialHelp" placeholder="粘贴 Read Access Token 或 API Key" />
+              <button id="credentialVisibilityBtn" class="credential-visibility" type="button" aria-controls="apiCredentialInput" aria-pressed="false">显示</button>
+            </div>
+            <p id="manualCredentialHelp" class="credential-help">令牌与密钥二选一，点击“保存并刷新”生效。留空保留已保存凭据，仅存储在本机。</p>
+            <label class="settings-label" for="proxyInput">代理地址</label>
+            <input id="proxyInput" class="settings-input" type="text" spellcheck="false" placeholder="system 或 http://127.0.0.1:7890 / socks5://127.0.0.1:7890" />
+            <label class="settings-label" for="resourceModeSelect">介绍页资源查找</label>
+            <select id="resourceModeSelect" class="settings-input">
+              <option value="stable">稳定优先（推荐）</option>
+              <option value="movie">电影片库优先</option>
+              <option value="full">全部来源</option>
+              <option value="off">关闭资源查找</option>
+            </select>
+            <label class="settings-label" for="resourcePlaybackModeSelect">资源播放方式</label>
+            <select id="resourcePlaybackModeSelect" class="settings-input"></select>
+            <label class="settings-label" for="playbackProxySelect">播放是否走代理</label>
+            <select id="playbackProxySelect" class="settings-input"></select>
+            <div class="settings-actions">
+              <button id="saveSettingsBtn" class="primary-button" type="button">保存并刷新</button>
+              <button id="testConnectionBtn" class="secondary-button" type="button">测试连接</button>
+              <button id="clearSettingsBtn" class="secondary-button" type="button">清除本机密钥</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="playerModal" class="player-modal is-hidden" aria-hidden="true">
+        <section class="player-shell" role="dialog" aria-modal="true" aria-labelledby="playerTitle">
+          <div class="player-topbar">
+            <div class="player-title-block">
+              <span id="playerSource" class="player-source">CineFlow Player</span>
+              <h2 id="playerTitle">准备播放</h2>
+              <p id="playerMeta">应用内极速加载资源</p>
+            </div>
+            <button id="playerCloseBtn" class="player-close-button" type="button" aria-label="关闭播放器">×</button>
+          </div>
+
+          <div id="playerStage" class="player-stage">
+            <video id="resourcePlayer" class="resource-player" controls playsinline preload="metadata"></video>
+            <div id="playerLoader" class="player-loader" aria-live="polite">
+              <span class="player-loader-ring"></span>
+              <strong>正在加载</strong>
+              <em>高清优先 · 全屏优化</em>
+            </div>
+            <div id="playerError" class="player-error is-hidden">
+              <strong>当前资源暂时无法在应用内播放</strong>
+              <span>可尝试外部打开，或切换其它线路。</span>
+            </div>
+          </div>
+
+          <div id="playerEpisodes" class="player-episodes is-hidden" aria-label="剧集列表">
+            <div class="player-episodes-head">
+              <span>本季剧集</span>
+              <em id="playerEpisodesMeta">0 集</em>
+            </div>
+            <div id="playerEpisodeList" class="player-episode-list"></div>
+          </div>
+
+          <div class="player-bottom">
+            <div id="playerStatus" class="player-status">等待资源链接...</div>
+            <div class="player-actions">
+              <button id="playerCopyBtn" class="secondary-button" type="button">复制链接</button>
+              <button id="playerExternalBtn" class="secondary-button" type="button">外部打开</button>
+              <button id="playerCastBtn" class="secondary-button cast-button" type="button" title="投屏到本机可发现的设备">⤴ 投屏</button>
+              <button id="playerStopBtn" class="primary-button" type="button">关闭播放</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="closeChoiceModal" class="close-choice-backdrop is-hidden" aria-hidden="true">
+        <section class="close-choice-card" role="dialog" aria-modal="true" aria-labelledby="closeChoiceTitle">
+          <p class="eyebrow">Exit</p>
+          <h2 id="closeChoiceTitle">要关闭 CineFlow 吗？</h2>
+          <p>也可以收纳成桌面灵动岛，随时拉出继续搜索电影/节目。</p>
+          <div class="settings-actions">
+            <button id="closeToIslandBtn" class="primary-button" type="button">最小化为灵动岛</button>
+            <button id="exitAppBtn" class="secondary-button" type="button">关闭程序</button>
+            <button id="cancelCloseBtn" class="secondary-button" type="button">取消</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="toast" class="toast is-hidden"></div>
+    </div>
+    <script type="module" src="/src/renderer.js"></script>
+  </body>
+</html>

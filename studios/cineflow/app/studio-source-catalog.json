@@ -1,0 +1,1418 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-26T09:50:29.601Z",
+  "reference": {
+    "repository": "https://github.com/TVboxorg/TVbox",
+    "revision": "c4d56567124bba6dc51d70d2cce7873d67396850",
+    "config": "https://raw.githubusercontent.com/TVboxorg/TVbox/main/dist/official.json",
+    "compatible": 18,
+    "unsupported": 142
+  },
+  "sources": [
+    {
+      "key": "studio-modu-anime",
+      "name": "魔都动漫",
+      "api": "https://www.mdzyapi.com/api.php/provide/vod",
+      "modes": [
+        "stable",
+        "movie",
+        "full"
+      ],
+      "contentTypes": [
+        "anime"
+      ],
+      "note": "已实测动漫搜索、详情、HLS 和 1080p 视频解码（2026-10-26）",
+      "reference": "https://www.moduzy.com/",
+      "verification": {
+        "checkedAt": "2026-10-26T09:45:11.520Z",
+        "catalog": true,
+        "search": true,
+        "detail": true,
+        "playlist": true,
+        "playback": true,
+        "origin": "https://www.moduzy.com/"
+      }
+    },
+    {
+      "key": "studio-verified-95990b844c6f",
+      "name": "虎牙资源",
+      "api": "https://www.huyaapi.com/api.php/provide/vod/from/hym3u8",
+      "modes": [
+        "stable",
+        "movie",
+        "full"
+      ],
+      "note": "已实测动漫搜索、详情、HLS 和 1080p 视频解码（2026-10-26）",
+      "verification": {
+        "checkedAt": "2026-10-26T09:45:11.523Z",
+        "catalog": true,
+        "search": true,
+        "detail": true,
+        "playlist": true,
+        "playback": true,
+        "origin": "TVboxorg"
+      },
+      "contentTypes": [
+        "anime"
+      ],
+      "reference": "TVboxorg"
+    },
+    {
+      "key": "studio-verified-bd3c0500399a",
+      "name": "火狐资源",
+      "api": "https://hhzyapi.com/api.php/provide/vod",
+      "modes": [
+        "stable",
+        "movie",
+        "full"
+      ],
+      "note": "已实测动漫搜索、详情、HLS 和 1080p 视频解码（2026-10-26）",
+      "verification": {
+        "checkedAt": "2026-10-26T09:45:11.523Z",
+        "catalog": true,
+        "search": true,
+        "detail": true,
+        "playlist": true,
+        "playback": true,
+        "origin": "TVboxorg"
+      },
+      "contentTypes": [
+        "anime"
+      ],
+      "reference": "TVboxorg"
+    },
+    {
+      "key": "studio-verified-696d3e1521a8",
+      "name": "如意资源",
+      "api": "https://cj.rycjapi.com/api.php/provide/vod",
+      "modes": [
+        "stable",
+        "movie",
+        "full"
+      ],
+      "note": "已检查动漫搜索、详情和 HLS 清单（2026-10-26）",
+      "verification": {
+        "checkedAt": "2026-10-26T07:25:09.355Z",
+        "catalog": true,
+        "search": true,
+        "detail": true,
+        "playlist": true,
+        "origin": "TVboxorg"
+      }
+    },
+    {
+      "key": "studio-verified-590933b2dd78",
+      "name": "紅牛資源",
+      "api": "http://hongniuzy2.com/api.php/provide/vod/from/hnm3u8",
+      "modes": [
+        "stable",
+        "movie",
+        "full"
+      ],
+      "note": "已检查动漫搜索、详情和 HLS 清单（2026-10-26）",
+      "verification": {
+        "checkedAt": "2026-10-26T07:25:13.817Z",
+        "catalog": true,
+        "search": true,
+        "detail": true,
+        "playlist": true,
+        "origin": "用户提供"
+      }
+    },
+    {
+      "key": "studio-verified-e86eec9ebd28",
+      "name": "360资源",
+      "api": "https://360zy.com/api.php/provide/vod",
+      "modes": [
+        "stable",
+        "movie",
+        "full"
+      ],
+      "note": "已检查动漫搜索、详情和 HLS 清单（2026-10-26）",
+      "verification": {
+        "checkedAt": "2026-10-26T07:25:12.768Z",
+        "catalog": true,
+        "search": true,
+        "detail": true,
+        "playlist": true,
+        "origin": "TVboxorg"
+      }
+    },
+    {
+      "key": "studio-verified-2ab551edbf36",
+      "name": "金鹰资源",
+      "api": "http://jyzyapi.com/provide/vod/from/jinyingm3u8",
+      "modes": [
+        "stable",
+        "movie",
+        "full"
+      ],
+      "note": "已检查动漫搜索、详情和 HLS 清单（2026-10-26）",
+      "verification": {
+        "checkedAt": "2026-10-26T07:25:19.939Z",
+        "catalog": true,
+        "search": true,
+        "detail": true,
+        "playlist": true,
+        "origin": "用户提供"
+      }
+    },
+    {
+      "key": "studio-verified-5b5a1a472fbe",
+      "name": "光速资源",
+      "api": "http://api.guangsuapi.com/api.php/provide/vod/from/gsm3u8",
+      "modes": [
+        "stable",
+        "movie",
+        "full"
+      ],
+      "note": "已检查动漫搜索、详情和 HLS 清单（2026-10-26）",
+      "verification": {
+        "checkedAt": "2026-10-26T07:25:20.052Z",
+        "catalog": true,
+        "search": true,
+        "detail": true,
+        "playlist": true,
+        "origin": "用户提供"
+      }
+    }
+  ],
+  "probes": [
+    {
+      "name": "🐉┃索尼┃高清·ok线路1",
+      "url": "https://suoniapi.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:07.372Z",
+      "catalog": true,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 822
+    },
+    {
+      "name": "🦁┃四九┃资源·ok线路1",
+      "url": "https://49zy1.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:07.373Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 1200
+    },
+    {
+      "name": "🐯┃奇虎┃采集·ok线路1",
+      "url": "https://caiji.qhzyapi.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:07.374Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 1324
+    },
+    {
+      "name": "👒┃小胡┃资源┃·ok线路1",
+      "url": "http://c.xn--yetu07f.icu/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:07.373Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 502",
+      "elapsedMs": 1581
+    },
+    {
+      "name": "⛱┃可可┃采集·ok线路1",
+      "url": "https://kekezy1.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:08.194Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 1161
+    },
+    {
+      "name": "🎹┃MTV┃合集·ok线路1",
+      "url": "https://mv.wogg.link/mv/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:08.698Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 1537
+    },
+    {
+      "name": "🕹️淘片┃采集·ok线路1",
+      "url": "https://taopianapi.com/cjapi/mc/vod/json.html",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:10.235Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 736
+    },
+    {
+      "name": "🥗┃非凡┃资源·ok线路1",
+      "url": "http://ffzy1.tv/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:07.373Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 20,
+      "error": "HTTP 403",
+      "elapsedMs": 3793
+    },
+    {
+      "name": "🥑┃量子┃资源·ok线路1",
+      "url": "https://lzizy1.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:07.373Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 20,
+      "error": "HTTP 404",
+      "elapsedMs": 4234
+    },
+    {
+      "name": "🛰️飞速┃采集·ok线路1",
+      "url": "https://www.feisuzyapi.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:10.971Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 852
+    },
+    {
+      "name": "虎牙资源",
+      "url": "https://www.huyaapi.com/api.php/provide/vod/from/hym3u8",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T09:45:11.523Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": true,
+      "playback": true,
+      "matches": 10
+    },
+    {
+      "name": "火狐资源",
+      "url": "https://hhzyapi.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T09:45:11.523Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": true,
+      "playback": true,
+      "matches": 12
+    },
+    {
+      "name": "🦔暴風┃采集·荐片",
+      "url": "https://bfzyapi.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:11.823Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 20,
+      "error": "HTTP 404",
+      "elapsedMs": 2153
+    },
+    {
+      "name": "🍀┃如意┃资源·二月红接口",
+      "url": "https://cj.rycjapi.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:09.355Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": true,
+      "matches": 7,
+      "elapsedMs": 4939
+    },
+    {
+      "name": "開放電影",
+      "url": "http://vod-demo.onrender.com/pubdovod.php",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:14.294Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 404",
+      "elapsedMs": 1000
+    },
+    {
+      "name": "🎏百度┃采集·ok线路1",
+      "url": "https://api.apibdzy.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:11.607Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 3,
+      "error": "HTTP 403",
+      "elapsedMs": 3776
+    },
+    {
+      "name": "🍀┃非凡┃资源·二月红接口",
+      "url": "http://ffzy5.tv/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:08.954Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 20,
+      "error": "HTTP 403",
+      "elapsedMs": 6753
+    },
+    {
+      "name": "量子資源",
+      "url": "http://cj.lziapi.com/api.php/provide/vod/from/lzm3u8",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:13.976Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 20,
+      "error": "HTTP 404",
+      "elapsedMs": 2432
+    },
+    {
+      "name": "紅牛資源",
+      "url": "http://hongniuzy2.com/api.php/provide/vod/from/hnm3u8",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:13.817Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": true,
+      "matches": 12,
+      "elapsedMs": 3304
+    },
+    {
+      "name": "天堂资源",
+      "url": "http://vipmv.cc/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:15.707Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 403",
+      "elapsedMs": 1580
+    },
+    {
+      "name": "39影視",
+      "url": "http://39kan.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:15.383Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 523",
+      "elapsedMs": 2340
+    },
+    {
+      "name": "优质资源库",
+      "url": "http://api.1080zyku.com/inc/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:15.294Z",
+      "catalog": true,
+      "search": true,
+      "detail": false,
+      "playlist": false,
+      "matches": 18,
+      "note": "已找到线路，尚未通过 HLS 清单验证",
+      "elapsedMs": 2485
+    },
+    {
+      "name": "唐人街",
+      "url": "http://tangrenjie.tv/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:17.121Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 502",
+      "elapsedMs": 688
+    },
+    {
+      "name": "酷点资源",
+      "url": "http://kudian10.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:17.779Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 404",
+      "elapsedMs": 1011
+    },
+    {
+      "name": "酷点资源",
+      "url": "http://api.kuapi.cc/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:17.287Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 502",
+      "elapsedMs": 2097
+    },
+    {
+      "name": "唐人街",
+      "url": "http://tangrenjie.tv/api.php/provide/vod/at/xm",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:17.809Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 502",
+      "elapsedMs": 1680
+    },
+    {
+      "name": "🦚360┃采集·荐片",
+      "url": "https://360zy.com/api.php/provide/vod",
+      "origin": "TVboxorg",
+      "checkedAt": "2026-10-26T07:25:12.768Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": true,
+      "matches": 6,
+      "elapsedMs": 6766
+    },
+    {
+      "name": "卧龙资源",
+      "url": "http://collect.wolongzyw.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:17.723Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 2205
+    },
+    {
+      "name": "影库资源网",
+      "url": "http://api.ykapi.net/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:19.384Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 502",
+      "elapsedMs": 555
+    },
+    {
+      "name": "快车资源",
+      "url": "http://caiji.kczyapi.com/api.php/provide/vod/from/kcm3u8",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:19.489Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 563
+    },
+    {
+      "name": "森林资源",
+      "url": "http://slapibf.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:18.790Z",
+      "catalog": true,
+      "search": true,
+      "detail": false,
+      "playlist": false,
+      "matches": 0,
+      "note": "采集接口可用，样例动漫无结果",
+      "elapsedMs": 1314
+    },
+    {
+      "name": "乐活影视",
+      "url": "http://lehootv.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:16.408Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 4982
+    },
+    {
+      "name": "閃電資源",
+      "url": "http://sdzyapi.com/api.php/provide/vod/from/sdm3u8",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:19.928Z",
+      "catalog": true,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 1480
+    },
+    {
+      "name": "探探资源",
+      "url": "http://apittzy.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:19.534Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 502",
+      "elapsedMs": 2602
+    },
+    {
+      "name": "北斗星资源",
+      "url": "http://m3u8.bdxzyapi.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:22.136Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 502",
+      "elapsedMs": 595
+    },
+    {
+      "name": "老鸭资源采集",
+      "url": "http://api.apilyzy.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:21.390Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 502",
+      "elapsedMs": 1580
+    },
+    {
+      "name": "金鹰资源",
+      "url": "http://jyzyapi.com/provide/vod/from/jinyingm3u8",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:19.939Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": true,
+      "matches": 12,
+      "elapsedMs": 3674
+    },
+    {
+      "name": "光速资源",
+      "url": "http://api.guangsuapi.com/api.php/provide/vod/from/gsm3u8",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:20.052Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": true,
+      "matches": 12,
+      "elapsedMs": 3591
+    },
+    {
+      "name": "闪电资源",
+      "url": "http://sdzyapi.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:22.970Z",
+      "catalog": true,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 897
+    },
+    {
+      "name": "樱花资源网",
+      "url": "http://m3u8.apiyhzy.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:22.731Z",
+      "catalog": true,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 403",
+      "elapsedMs": 1163
+    },
+    {
+      "name": "奥斯卡资源网",
+      "url": "http://aosikazy.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:20.104Z",
+      "catalog": true,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 4104
+    },
+    {
+      "name": "快播资源",
+      "url": "http://www.kuaibozy.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:23.643Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 929
+    },
+    {
+      "name": "飘花电影",
+      "url": "http://www.zzrhgg.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:24.208Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 933
+    },
+    {
+      "name": "飞速资源",
+      "url": "http://feisuzy.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:23.613Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "HTTP 403",
+      "elapsedMs": 1529
+    },
+    {
+      "name": "网民电影",
+      "url": "http://prinevillesda.org/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:24.572Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 931
+    },
+    {
+      "name": "丝袜资源",
+      "url": "http://siwazyw.cc/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:25.141Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 676
+    },
+    {
+      "name": "天空資源",
+      "url": "http://m3u8.tiankongapi.com/api.php/provide/vod/from/tkm3u8",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:25.142Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 857
+    },
+    {
+      "name": "U酷资源",
+      "url": "http://api.ukuapi.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:21.408Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 17,
+      "error": "HTTP 403",
+      "elapsedMs": 4603
+    },
+    {
+      "name": "海外看資源",
+      "url": "http://haiwaikan.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:25.503Z",
+      "catalog": false,
+      "search": false,
+      "detail": false,
+      "playlist": false,
+      "error": "网络或格式检查失败",
+      "elapsedMs": 593
+    },
+    {
+      "name": "百度资源",
+      "url": "http://api.apibdzy.com/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:23.867Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 3,
+      "error": "HTTP 403",
+      "elapsedMs": 2798
+    },
+    {
+      "name": "艾旦影视",
+      "url": "http://lovedan.net/api.php/provide/vod",
+      "origin": "用户提供",
+      "checkedAt": "2026-10-26T07:25:23.894Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": false,
+      "matches": 20,
+      "error": "HTTP 403",
+      "elapsedMs": 5771
+    },
+    {
+      "name": "魔都动漫",
+      "url": "https://www.mdzyapi.com/api.php/provide/vod",
+      "origin": "https://www.moduzy.com/",
+      "checkedAt": "2026-10-26T09:45:11.520Z",
+      "catalog": true,
+      "search": true,
+      "detail": true,
+      "playlist": true,
+      "playback": true,
+      "matches": 7
+    }
+  ],
+  "websites": [
+    {
+      "name": "异世界动漫",
+      "url": "https://www.dmmiku.com/",
+      "checkedAt": "2026-10-26T07:25:07.399Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.dmmiku.com"
+    },
+    {
+      "name": "稀饭动漫",
+      "url": "https://dick.xfani.com/",
+      "checkedAt": "2026-10-26T07:25:07.399Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://dick.xfani.com"
+    },
+    {
+      "name": "番组放送",
+      "url": "https://bgmlist.com/",
+      "checkedAt": "2026-10-26T07:25:08.135Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://bgmlist.com"
+    },
+    {
+      "name": "饭团动漫",
+      "url": "https://acgfta.com/",
+      "checkedAt": "2026-10-26T07:25:07.400Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://acgfta.com"
+    },
+    {
+      "name": "AGE动漫",
+      "url": "https://www.agedm.org/",
+      "checkedAt": "2026-10-26T07:25:07.399Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "動畫線上看 / Anime1.me",
+      "url": "https://anime1.me/",
+      "checkedAt": "2026-10-26T07:25:07.399Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://anime1.me"
+    },
+    {
+      "name": "咕咕番",
+      "url": "https://www.gugu3.com/",
+      "checkedAt": "2026-10-26T07:25:08.605Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.gugu3.com"
+    },
+    {
+      "name": "番薯动漫",
+      "url": "https://www.fsdm02.com/",
+      "checkedAt": "2026-10-26T07:25:09.013Z",
+      "reachable": false,
+      "state": "challenge",
+      "cmsApi": null,
+      "status": 403,
+      "finalOrigin": "https://www.fsdm02.com"
+    },
+    {
+      "name": "趣动漫",
+      "url": "https://www.qdm66.com/",
+      "checkedAt": "2026-10-26T07:25:08.596Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "橘子动漫",
+      "url": "https://www.jzacg.com/",
+      "checkedAt": "2026-10-26T07:25:07.399Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.jzacg.com"
+    },
+    {
+      "name": "MX动漫（备用）",
+      "url": "https://www.mxdm9.cc/",
+      "checkedAt": "2026-10-26T07:25:09.311Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.mxdm9.cc"
+    },
+    {
+      "name": "girigiri愛動漫",
+      "url": "https://anime.girigirilove.com/",
+      "checkedAt": "2026-10-26T07:25:10.476Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "樱之空动漫",
+      "url": "https://www.skr2.cc/",
+      "checkedAt": "2026-10-26T07:25:07.400Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.skr2.cc"
+    },
+    {
+      "name": "酷酷兔",
+      "url": "http://kukutu8.top/",
+      "checkedAt": "2026-10-26T07:25:10.116Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "http://kukutu8.top"
+    },
+    {
+      "name": "久久动漫",
+      "url": "http://www.995dm.com/",
+      "checkedAt": "2026-10-26T07:25:09.755Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "http://www.995dm.com"
+    },
+    {
+      "name": "Bangumi",
+      "url": "https://bangumi.tv/",
+      "checkedAt": "2026-10-26T07:25:11.676Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://bangumi.tv"
+    },
+    {
+      "name": "MX动漫",
+      "url": "https://www.mxdm.xyz/",
+      "checkedAt": "2026-10-26T07:25:09.171Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "佩可爱动漫",
+      "url": "https://pekolove.com/",
+      "checkedAt": "2026-10-26T07:25:08.602Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://pekolove.com"
+    },
+    {
+      "name": "AcFun",
+      "url": "https://www.acfun.cn/",
+      "checkedAt": "2026-10-26T07:25:10.489Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.acfun.cn"
+    },
+    {
+      "name": "虾皮动漫",
+      "url": "https://xiapidm.com/",
+      "checkedAt": "2026-10-26T07:25:12.525Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "漫搜搜",
+      "url": "https://msousou.vip/",
+      "checkedAt": "2026-10-26T07:25:11.629Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "花子动漫",
+      "url": "https://www.huazidm.com/",
+      "checkedAt": "2026-10-26T07:25:12.594Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "status": 404,
+      "finalOrigin": "https://www.huazidm.com"
+    },
+    {
+      "name": "路漫漫 1",
+      "url": "https://dm.g916.com/",
+      "checkedAt": "2026-10-26T07:25:13.724Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://dm.g916.com"
+    },
+    {
+      "name": "小爆虾次元站",
+      "url": "https://xiaobaoxia.com/acg.html",
+      "checkedAt": "2026-10-26T07:25:07.399Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "菲特动漫",
+      "url": "https://fitacg.com/",
+      "checkedAt": "2026-10-26T07:25:13.673Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://fitacg.com"
+    },
+    {
+      "name": "风车动漫",
+      "url": "https://dm530.org/",
+      "checkedAt": "2026-10-26T07:25:14.405Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://dm530.org"
+    },
+    {
+      "name": "NT动漫",
+      "url": "https://www.ntdm9.com/",
+      "checkedAt": "2026-10-26T07:25:12.096Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "次元派对",
+      "url": "https://www.acg.party/",
+      "checkedAt": "2026-10-26T07:25:08.173Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "动漫岛 1",
+      "url": "https://www.dmand5.com/",
+      "checkedAt": "2026-10-26T07:25:14.437Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.dmand5.com"
+    },
+    {
+      "name": "奇奇动漫",
+      "url": "https://qiqidm7.com/",
+      "checkedAt": "2026-10-26T07:25:15.175Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "次元狗动漫",
+      "url": "https://www.acgndog.com/",
+      "checkedAt": "2026-10-26T07:25:15.589Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.acgndog.com"
+    },
+    {
+      "name": "路漫漫 2（备用）",
+      "url": "https://www.lmm82.com/",
+      "checkedAt": "2026-10-26T07:25:14.074Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "动漫岛 2（备用导航）",
+      "url": "https://rentry.org/dmd8",
+      "checkedAt": "2026-10-26T07:25:14.888Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://rentry.org"
+    },
+    {
+      "name": "Animeko",
+      "url": "https://myani.org/",
+      "checkedAt": "2026-10-26T07:25:16.386Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://myani.org"
+    },
+    {
+      "name": "五弹幕",
+      "url": "https://www.5dm.link/",
+      "checkedAt": "2026-10-26T07:25:16.719Z",
+      "reachable": false,
+      "state": "challenge",
+      "cmsApi": null,
+      "status": 403,
+      "finalOrigin": "https://www.5dm.link"
+    },
+    {
+      "name": "动漫妖",
+      "url": "https://www.dmyao.com/",
+      "checkedAt": "2026-10-26T07:25:15.857Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "MuteFun动漫网站",
+      "url": "https://www.mute01.com/",
+      "checkedAt": "2026-10-26T07:25:11.393Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.mute01.com"
+    },
+    {
+      "name": "M站（哔咪动漫）",
+      "url": "https://www.bimiacg14.net/",
+      "checkedAt": "2026-10-26T07:25:15.152Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "status": 403,
+      "finalOrigin": "https://www.bimiacg14.net"
+    },
+    {
+      "name": "OmoFun",
+      "url": "https://omofuns.xyz/",
+      "checkedAt": "2026-10-26T07:25:13.418Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "奇米奇米",
+      "url": "https://www.qimiqimi.net/",
+      "checkedAt": "2026-10-26T07:25:16.280Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.qimiqimi.net"
+    },
+    {
+      "name": "风之动漫",
+      "url": "https://www.fffdm.com/",
+      "checkedAt": "2026-10-26T07:25:16.175Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.fffdm.com"
+    },
+    {
+      "name": "拉拉动漫",
+      "url": "https://www.acglala.cc/",
+      "checkedAt": "2026-10-26T07:25:18.988Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "奇漫岛",
+      "url": "https://www.qimandao.com/",
+      "checkedAt": "2026-10-26T07:25:18.204Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.qimandao.com"
+    },
+    {
+      "name": "柒番",
+      "url": "https://www.qifun.cc/",
+      "checkedAt": "2026-10-26T07:25:13.367Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "次元城 2（备用）",
+      "url": "https://www.cycani.org/",
+      "checkedAt": "2026-10-26T07:25:17.947Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "status": 403,
+      "finalOrigin": "https://www.cycani.org"
+    },
+    {
+      "name": "XDM动漫",
+      "url": "https://www.xuandm.com/",
+      "checkedAt": "2026-10-26T07:25:18.374Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.xuandm.com"
+    },
+    {
+      "name": "次元城 1",
+      "url": "https://www.cycanime.com/",
+      "checkedAt": "2026-10-26T07:25:17.886Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "status": 403,
+      "finalOrigin": "https://www.cycanime.com"
+    },
+    {
+      "name": "橘子动漫（备用）",
+      "url": "https://www.mgnacg.com/",
+      "checkedAt": "2026-10-26T07:25:18.540Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.mgnacg.com"
+    },
+    {
+      "name": "樱花动漫（备用二）",
+      "url": "https://yhdm.one/",
+      "checkedAt": "2026-10-26T07:25:20.876Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://yhdm.one"
+    },
+    {
+      "name": "Anime Tosho",
+      "url": "https://animetosho.org/",
+      "checkedAt": "2026-10-26T07:25:20.374Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://animetosho.org"
+    },
+    {
+      "name": "233动漫",
+      "url": "https://www.661dm.com/",
+      "checkedAt": "2026-10-26T07:25:19.987Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.661dm.com"
+    },
+    {
+      "name": "风车动漫（备用一）",
+      "url": "https://fengchedmp.com/",
+      "checkedAt": "2026-10-26T07:25:21.558Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://fengchedmp.com"
+    },
+    {
+      "name": "樱花动漫",
+      "url": "https://www.295yhw.com/",
+      "checkedAt": "2026-10-26T07:25:20.520Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "风车动漫（备用二）",
+      "url": "http://www.xdm530.com/",
+      "checkedAt": "2026-10-26T07:25:21.781Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "http://www.xdm530.com"
+    },
+    {
+      "name": "樱花动漫（备用一）",
+      "url": "https://www.yinhuadm.vip/",
+      "checkedAt": "2026-10-26T07:25:20.861Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "新世界动漫",
+      "url": "http://www.x4jdm.top/",
+      "checkedAt": "2026-10-26T07:25:17.292Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "AkiAnime",
+      "url": "https://www.akianime.cc/",
+      "checkedAt": "2026-10-26T07:25:22.607Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.akianime.cc"
+    },
+    {
+      "name": "哈密瓜动漫",
+      "url": "https://hmgdm.com/",
+      "checkedAt": "2026-10-26T07:25:22.912Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://hmgdm.com"
+    },
+    {
+      "name": "嗷呜动漫",
+      "url": "https://www.aowu.tv/",
+      "checkedAt": "2026-10-26T07:25:22.736Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "P站番剧聚集地",
+      "url": "https://tv.pilipili6.top/",
+      "checkedAt": "2026-10-26T07:25:20.169Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    },
+    {
+      "name": "MUTE FUN",
+      "url": "https://www.mutean.com/",
+      "checkedAt": "2026-10-26T07:25:20.377Z",
+      "reachable": true,
+      "state": "page",
+      "cmsApi": null,
+      "status": 200,
+      "finalOrigin": "https://www.mutean.com"
+    },
+    {
+      "name": "AkiAnime（备用）",
+      "url": "https://www.akianime.com/",
+      "checkedAt": "2026-10-26T07:25:22.622Z",
+      "reachable": false,
+      "state": "unavailable",
+      "cmsApi": null,
+      "error": "当前网络连接失败或超时"
+    }
+  ]
+}
