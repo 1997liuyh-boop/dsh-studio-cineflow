@@ -1,31 +1,102 @@
 {
-  "name": "dsh-studio-cineflow-source",
-  "version": "0.1.0",
-  "private": true,
+  "name": "dsh-studio-cineflow",
+  "version": "0.2.0",
+  "description": "CineFlow：电影节目发现、片源管理、播放续播与局域网投屏",
   "type": "module",
   "license": "MIT",
-  "description": "影音工作室独立源码与构建入口",
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": "0.2.1-rc.2 || >=0.2.2-rc.1 <0.2.2"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "static",
+    "cordis.patch.yml",
+    "dsh.plugin.json",
+    "README.md",
+    "LICENSE",
+    "UPSTREAM.json",
+    "studio.json",
+    "sources.json",
+    "scripts",
+    "app/dist",
+    "app/electron",
+    "app/LICENSE",
+    "app/package.json",
+    "app/studio-sources.json",
+    "app/studio-source-catalog.json",
+    "patches",
+    "THIRD_PARTY_NOTICES.md",
+    "scripts/start.ps1"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    },
+    "compatibility": {
+      "dsh": "0.2.1-rc.2",
+      "dshReleases": {
+        "0.2.1-rc.2": "experimental"
+      }
+    }
+  },
+  "peerDependencies": {
+    "dsh-studio-projects": "^0.5.0",
+    "dsh-worktable": "^0.6.0"
+  },
+  "peerDependenciesMeta": {
+    "dsh-studio-projects": {
+      "optional": true
+    },
+    "dsh-worktable": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check-install.mjs"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/1997liuyh-boop/dsh-studio-cineflow.git"
   },
-  "scripts": {
-    "build": "node scripts/build.mjs",
-    "check": "node scripts/check.mjs",
-    "pack": "node scripts/pack.mjs",
-    "test": "node --test tests/*.test.mjs"
+  "homepage": "https://github.com/1997liuyh-boop/dsh-studio-cineflow#readme",
+  "bugs": {
+    "url": "https://github.com/1997liuyh-boop/dsh-studio-cineflow/issues"
   },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "studio"
+  ],
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
     "esbuild": "^0.28.2",
+    "jsdom": "^26.1.0",
     "postcss": "8.5.15",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3",
-    "jsdom": "^26.1.0"
+    "dashjs": "^5.2.0",
+    "fast-xml-parser": "^5.11.2",
+    "flv.js": "^1.6.2",
+    "hls.js": "^1.6.16",
+    "vite": "^6.0.7"
   }
 }

@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "importedCount": 35,
+  "sources": [
+    {
+      "id": "source-590933b2dd78",
+      "name": "紅牛資源",
+      "url": "http://hongniuzy2.com/api.php/provide/vod/from/hnm3u8",
+      "format": "auto"
+    },
+    {
+      "id": "source-4aecd3dfc7be",
+      "name": "量子資源",
+      "url": "http://cj.lziapi.com/api.php/provide/vod/from/lzm3u8",
+      "format": "auto"
+    },
+    {
+      "id": "source-bd675b038b5d",
+      "name": "開放電影",
+      "url": "http://vod-demo.onrender.com/pubdovod.php",
+      "format": "auto"
+    },
+    {
+      "id": "source-3583b4032806",
+      "name": "优质资源库",
+      "url": "http://api.1080zyku.com/inc/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-ea21e90093f7",
+      "name": "39影視",
+      "url": "http://39kan.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-bb862d40a29b",
+      "name": "天堂资源",
+      "url": "http://vipmv.cc/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-4ae4320a2ec8",
+      "name": "乐活影视",
+      "url": "http://lehootv.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-3613f8b00d19",
+      "name": "唐人街",
+      "url": "http://tangrenjie.tv/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-602319ff5c22",
+      "name": "酷点资源",
+      "url": "http://api.kuapi.cc/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-ab10c39f86ca",
+      "name": "卧龙资源",
+      "url": "http://collect.wolongzyw.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-abe30af0136c",
+      "name": "酷点资源",
+      "url": "http://kudian10.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-bb7c18e214b6",
+      "name": "唐人街",
+      "url": "http://tangrenjie.tv/api.php/provide/vod/at/xm",
+      "format": "xml"
+    },
+    {
+      "id": "source-2611e0808d2f",
+      "name": "森林资源",
+      "url": "http://slapibf.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-220aa5d2cf68",
+      "name": "影库资源网",
+      "url": "http://api.ykapi.net/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-23a911092b64",
+      "name": "快车资源",
+      "url": "http://caiji.kczyapi.com/api.php/provide/vod/from/kcm3u8",
+      "format": "auto"
+    },
+    {
+      "id": "source-0cdfef3c5334",
+      "name": "探探资源",
+      "url": "http://apittzy.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-301ac8c5fd74",
+      "name": "閃電資源",
+      "url": "http://sdzyapi.com/api.php/provide/vod/from/sdm3u8",
+      "format": "auto"
+    },
+    {
+      "id": "source-2ab551edbf36",
+      "name": "金鹰资源",
+      "url": "http://jyzyapi.com/provide/vod/from/jinyingm3u8",
+      "format": "auto"
+    },
+    {
+      "id": "source-5b5a1a472fbe",
+      "name": "光速资源",
+      "url": "http://api.guangsuapi.com/api.php/provide/vod/from/gsm3u8",
+      "format": "auto"
+    },
+    {
+      "id": "source-3a2d3da8bd81",
+      "name": "奥斯卡资源网",
+      "url": "http://aosikazy.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-945ef565f77a",
+      "name": "老鸭资源采集",
+      "url": "http://api.apilyzy.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-8df1d042eafe",
+      "name": "U酷资源",
+      "url": "http://api.ukuapi.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-4757e7dec9dc",
+      "name": "北斗星资源",
+      "url": "http://m3u8.bdxzyapi.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-647e0723b02c",
+      "name": "樱花资源网",
+      "url": "http://m3u8.apiyhzy.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-a6570b60682e",
+      "name": "闪电资源",
+      "url": "http://sdzyapi.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-7bd6329e6492",
+      "name": "飞速资源",
+      "url": "http://feisuzy.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-553483d95014",
+      "name": "快播资源",
+      "url": "http://www.kuaibozy.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-795280eee6b8",
+      "name": "百度资源",
+      "url": "http://api.apibdzy.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-f0ccb025823f",
+      "name": "艾旦影视",
+      "url": "http://lovedan.net/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-f99ac451878a",
+      "name": "飘花电影",
+      "url": "http://www.zzrhgg.com/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-b31de7b19612",
+      "name": "网民电影",
+      "url": "http://prinevillesda.org/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-50048bcbcd6a",
+      "name": "丝袜资源",
+      "url": "http://siwazyw.cc/api.php/provide/vod",
+      "format": "auto"
+    },
+    {
+      "id": "source-6c1eb7d46a46",
+      "name": "天空資源",
+      "url": "http://m3u8.tiankongapi.com/api.php/provide/vod/from/tkm3u8",
+      "format": "auto"
+    },
+    {
+      "id": "source-2629cf02b05b",
+      "name": "海外看資源",
+      "url": "http://haiwaikan.com/api.php/provide/vod",
+      "format": "auto"
+    }
+  ]
+}

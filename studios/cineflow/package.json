@@ -5,7 +5,8 @@
   "type": "module",
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": "0.2.1-rc.2 || >=0.2.2-rc.1 <0.2.2"
   },
   "main": "lib/index.js",
   "exports": {
@@ -31,7 +32,8 @@
     "app/studio-sources.json",
     "app/studio-source-catalog.json",
     "patches",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "scripts/start.ps1"
   ],
   "dsh": {
     "bundle": {
@@ -63,7 +65,8 @@
     }
   },
   "scripts": {
-    "build": "node ../../scripts/build.mjs cineflow"
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check-install.mjs"
   },
   "dependencies": {
     "fast-xml-parser": "^5.11.2"
@@ -76,5 +79,25 @@
   "homepage": "https://github.com/1997liuyh-boop/dsh-studio-cineflow#readme",
   "bugs": {
     "url": "https://github.com/1997liuyh-boop/dsh-studio-cineflow/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "studio"
+  ],
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "jsdom": "^26.1.0",
+    "postcss": "8.5.15",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tailwindcss": "4.3.0",
+    "typescript": "6.0.3",
+    "dashjs": "^5.2.0",
+    "fast-xml-parser": "^5.11.2",
+    "flv.js": "^1.6.2",
+    "hls.js": "^1.6.16",
+    "vite": "^6.0.7"
   }
 }

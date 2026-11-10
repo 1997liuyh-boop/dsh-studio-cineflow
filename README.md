@@ -1,44 +1,42 @@
-# 影音工作室
+# dsh-studio-cineflow
 
-基于 CineFlow 的分类推荐、地区/类别/日期筛选、片名搜索、统一片源管理、播放历史与局域网投屏。
+CineFlow：电影节目发现、片源管理、播放续播与局域网投屏
 
-这是独立的工作室插件仓库：只维护 影音工作室，可以独立克隆、构建和发布。
+本仓库根目录是可安装的 DSH 插件，版本 0.2.0。在插件市场添加本仓库 Git URL，安装后启用。先安装并启用 [工作室容器与共享运行时](https://github.com/1997liuyh-boop/dsh-studio-library)，再启用本插件。
 
-## 来源与感谢
+Git 安装使用已提交的 lib/ 与静态资源。开发时执行 npm install --include=dev --legacy-peer-deps、npm run build、npm run check；构建只使用本仓库源码与公开依赖，不引用相邻工作库。
 
-本项目配合 [1997liuyh-boop/deepseek-harness](https://github.com/1997liuyh-boop/deepseek-harness) 使用；该宿主 **fork 自 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)**。感谢 DeepSeek 团队及上游贡献者。当前已验证的适配目标为 **dsh 0.2.1-rc.2（实验性）**，Windows 桌面端优先。
+Windows 应用服务通过 scripts/start.ps1 启动，必须用 -ElectronPath 或 DSH_STUDIO_ELECTRON 指定本机 Electron；播放历史保存在用户数据目录。
 
-**源码改编**：本工作室基于 [incldue/CineFlow](https://github.com/incldue/CineFlow)。
+## 功能与上游说明
 
-上游锁定提交：b32fd8a6ba43dcde4494b7487ebf5d949f65a306。
 
-感谢上游作者及贡献者提供的基础。本项目改动采用 MIT；内置或补丁涉及的上游许可与版权保持原文。完整来源见 [第三方声明](THIRD_PARTY_NOTICES.md) 和 [UPSTREAM.json](studios/cineflow/UPSTREAM.json)。另感谢 [debu8ger/CineFlow](https://github.com/debu8ger/CineFlow) 原作者及 [TVboxorg/TVbox](https://github.com/TVboxorg/TVbox) 的配置格式参考。
+CineFlow：电影节目发现、片源管理、播放续播与局域网投屏。本插件有独立的页面源码、宿主注册、构建与发布版本。
 
-## 依赖与构建
+从库根目录构建：`node scripts/build.mjs cineflow`。依赖 dsh-worktable ^0.6.0 与 dsh-studio-projects ^0.5.0。
 
-运行时依赖共享基础库中的 **dsh-worktable ^0.6.0** 和 **dsh-studio-projects ^0.5.0**。先安装容器和运行时，再安装本工作室；停用某个工作室不会删除其他工作室或用户数据。
+来源及锁定提交见 [UPSTREAM.json](UPSTREAM.json)。完整 CineFlow 源码在 app。首次启动按接口身份导入自定义片源，之后保留用户增删。Windows 启动器在库根 scripts/start-cineflow.ps1，设置 DSH_STUDIO_CINEFLOW_DATA 后与宿主使用同一外置目录。
 
-共享依赖由 [dsh-studio-library](https://github.com/1997liuyh-boop/dsh-studio-library) 独立维护。构建本仓库不需要克隆其他工作室，packages/sdk 已保留固定协议快照。需要 Node.js 22 或更新版本、npm、Git。
+嵌入布局由 `app/src/studio-embedded.css` 使用 Tailwind 单独构建，桥接服务只在工作室模式加载。外层禁止滚动，片单、详情及设置保留内部滚动；标题栏适应窄窗口。独立打开入口携带当前本机桥接凭证。
 
-```powershell
-git clone https://github.com/1997liuyh-boop/dsh-studio-cineflow.git
-cd dsh-studio-cineflow
-npm ci --ignore-scripts
-npm ci --prefix studios/cineflow/app --ignore-scripts
-npm run build
-npm run check
-npm test
-npm run pack
-```
+未配置 TMDB 凭据时直接进入公开片单模式，不重试每日推荐。配置后空结果最多重试两次，成功清除提示，失败显示检查凭据或网络的操作说明；手动刷新会取消待执行的重试并忽略旧请求结果。
 
-业务源码、studio.json 和插件 package.json 位于 studios/cineflow。artifacts 生成 dsh-studio-cineflow-0.2.0.tgz 与 SHA256 清单；GitHub Actions 也提供完整安装包产物。使用实际桌面应用自带的 dsh CLI，在容器和共享运行时之后执行 plugin --profile desktop add <tgz绝对路径>，随后重启宿主；网页端使用 web profile。
+点击右上角“TMDB 配置”，在“手动配置 TMDB”中填入 Read Access Token 或 API Key，二选一后“保存并刷新”。输入框默认掩码，可切换显示；留空保留当前凭据，关闭设置恢复掩码。实际凭据由原应用仅写入本机数据目录，不包含在工作库或插件包中。
 
-宿主必须具备工作室桥接适配，兼容声明以 studio.json 为准。卸载和升级不清空用户数据。
+顶部“推荐 / 分类片库 / 播放历史”可直接点击切换，与方向键和 Alt+1/2/3 共用页面状态。推荐页保留每日片单、喜好推荐及热映高分片单；分类片库提供电影/节目、出品地区、类别、发布时间的组合筛选，以及热度、评分、最新、最早排序。
 
-## Windows 本机服务
+发布时间支持逐年、2000 年以前和自定义日期范围，电影使用首映日期、节目使用首次播出日期；自定义范围允许只填一端，点击“应用日期”生效。筛选改变会回到第一页，继续加载时保留条件，可一键重置。连接失败时提供原条件重试；地区或日期筛选失败不会替换成不匹配的公开片单。
 
-完整 CineFlow 源码在 studios/cineflow/app。构建后运行 pwsh -File scripts/start-cineflow.ps1；可用 -ElectronPath 指定 Electron、-DataDirectory 指定外置数据目录、-Port 指定端口。宿主与服务使用相同的 DSH_STUDIO_CINEFLOW_DATA 目录。TMDB 凭据在应用右上角“TMDB 配置”手动录入，只保存在本机。片源可在管理页导入、去重和测速；外部源可用性会变化。详细功能、搜索行为与片源兼容边界见插件目录 README。
+电影、剧集、动漫共用一份片源管理。列表按提供商展示，量子、闪电、酷点的多个接口收在同一项中，展开后可以分别测速、删除自定义线路。只有一套导入控件；导入会替换自定义接口，保留内置片源。删除其他线路时保留剩余接口的名称、标识、模式、认证参数及启用状态。
 
-## 开发与更新
+首页“动漫资源”标签页和设置中的“动漫网站与导航”已移除。网页地址本身没有统一的搜索、剧集详情及视频清单，不能直接作为采集 API。现已接入[魔都动漫公开采集接口](https://www.moduzy.com/)，与虎牙、火狐等来源一起参与现有的自动片源查找。2026-10-26 三个来源均实测通过《海贼王》搜索、详情、HLS 清单及播放器 1080p 视频解码，列表标注“含动漫”。樱花资源本轮搜索返回 403，保留原有接口供管理，不标为可播放。
 
-参见 [开发规范](CONTRIBUTING.md)、[插件说明](studios/cineflow/README.md) 和 [工作室控制协议](packages/sdk/CONTROL.md)。上游提交固定记录在 UPSTREAM.json；更新时在新检出中重放适配、验证本工作室，再递增插件版本。SDK 快照通过 SDK-SNAPSHOT.json 追踪，宿主更新不代表已验证兼容。
+接口去重忽略同一地址的 HTTP/HTTPS、CMS JSON/XML 输出格式及请求动作参数，保留不同域名、不同播放线路与认证查询条件。自定义设置优先于相同的内置接口。提供商分组只影响展示，不会丢弃真正不同的线路。
+
+参考 [TVboxorg/TVbox](https://github.com/TVboxorg/TVbox) 的 `dist/official.json`，引入虎牙、火狐等兼容采集源；记录包含样例检查时间，在轮询中优先使用。TVBox 导入支持 type=0 XML 和 type=1 JSON，跳过需要专用引擎的 CSP/JAR/脚本并报告数量。测速会验证采集数据结构，HTTP 200 的普通网页不会被标记为成功。第三方可用性会变化，可随时重新测速。
+
+片源种子迁移版本 3 清理唐人街 JSON/XML 重复接口；已完成版本 2 迁移的用户不会再次回填删除的源。新安装仍补齐原始清单的不同接口，保留不同镜像及线路。当前默认展示为 41 个提供商、44 条接口，其中自定义 33 条、内置 11 条；包含新增魔都动漫。失败地址保留历史检查状态，可管理和重新测速。
+
+顶部搜索默认使用“片名搜索”，只查电影、剧集和动漫名称，同名作品优先，不再将片名里的“冒险”“爱情”等词转换成类型推荐。“精确片名”只保留显示片名或原名相同的作品，忽略大小写、空格和标点；找别名或部分名称时使用“片名搜索”。“智能推荐”保留心情、天气和类型描述功能。中文输入法组词完成后才查询，快速换词和清空输入会忽略过期搜索及分页响应。连接失败会显示错误并提示回车重试。
+
+2026-10-26 检查 `https://9280.kstore.vip/newwex.json`：配置可读取，但其中 99 个站点全部为 type=3 的 CSP/JAR 线路，没有可直接使用的 JSON/XML 采集接口。导入会明确提示站点数量及引擎不兼容，并保留当前片源；不会将这些线路标为可播放。

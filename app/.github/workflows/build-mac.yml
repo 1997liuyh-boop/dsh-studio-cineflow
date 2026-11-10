@@ -1,0 +1,73 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '把 mac 包上传到哪个 Release 的 tag；留空 = 按 package.json 版本推导 V<version>'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Build macOS app (dmg + zip, arm64 + x64)
+        run: npx electron-builder --mac --publish never
+        env:
+          # No Apple Developer certificate on CI: skip code signing / notarization.
+          # The DMG will be unsigned — on first launch macOS Gatekeeper will warn;
+          # right-click the app and choose "Open" to run it.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CineFlow-mac
+          path: |
+            release/*.dmg
+            release/*.zip
+
+      # 目标 Release 的 tag：手动触发时可以指定（例如已经建好的 V3.4.0），
+      # tag 触发时用该 tag，其它情况按 package.json 版本推导 V<version>
+      - name: Resolve release tag
+        id: rel
+        env:
+          INPUT_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=V$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          files: |
+            release/*.dmg
+            release/*.zip
