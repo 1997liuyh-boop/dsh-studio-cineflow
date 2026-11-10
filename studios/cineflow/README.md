@@ -1,6 +1,25 @@
-# 影音工作室
+# dsh-studio-cineflow
+
+CineFlow：电影节目发现、片源管理、播放续播与局域网投屏
+
+本仓库根目录是可安装的 DSH 插件，版本 0.2.0。在插件市场添加本仓库 Git URL，安装后启用。先安装并启用 [工作室容器与共享运行时](https://github.com/1997liuyh-boop/dsh-studio-library)，再启用本插件。
+
+Git 安装使用已提交的 lib/ 与静态资源。开发时执行 npm install --include=dev --legacy-peer-deps、npm run build、npm run check；构建只使用本仓库源码与公开依赖，不引用相邻工作库。
+
+Windows 应用服务通过 scripts/start.ps1 启动，必须用 -ElectronPath 或 DSH_STUDIO_ELECTRON 指定本机 Electron；播放历史保存在用户数据目录。
+
+## 功能与上游说明
+
 
 CineFlow：电影节目发现、片源管理、播放续播与局域网投屏。本插件有独立的页面源码、宿主注册、构建与发布版本。
+
+功能包括推荐与分类片库、电影/剧集/动漫搜索、地区和日期筛选、片源导入与去重、线路测速、播放历史、断点续播、字幕与清晰度选择，以及通过局域网设备进行投屏。TMDB 配置、片源凭据和播放历史均保存在本机数据目录；未配置外部服务时只显示可用的公开片单。
+
+本仓库只负责 DSH 工作室适配和 CineFlow 页面，不会自动安装外部 Electron 服务。Windows 服务启动、数据目录、端口和播放器状态必须使用仓库提供的启动脚本与实际状态；网络片源、TMDB、投屏设备和第三方接口的可用性由外部服务决定。
+
+## 限制
+
+没有 TMDB 凭据时不会伪造推荐结果；外部片源可能失效、需要认证或只支持特定播放器。局域网投屏要求设备与本机在同一网络并支持对应协议；插件不携带推流密钥，也不会自动开播。
 
 从库根目录构建：`node scripts/build.mjs cineflow`。依赖 dsh-worktable ^0.6.0 与 dsh-studio-projects ^0.5.0。
 
