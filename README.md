@@ -1,54 +1,46 @@
 # dsh-studio-cineflow
 
-CineFlow：电影节目发现、片源管理、播放续播与局域网投屏
+[简体中文](README.zh.md)
 
-本仓库根目录是可安装的 DSH 插件，版本 0.2.0。在插件市场添加本仓库 Git URL，安装后启用。先安装并启用 [工作室容器与共享运行时](https://github.com/1997liuyh-boop/dsh-studio-library)，再启用本插件。
+**Repository name:** $n\n\n**Repository description:** CineFlow studio for discovering films and shows, managing sources, resuming playback, and casting on a local network.
 
-Git 安装使用已提交的 lib/ 与静态资源。开发时执行 npm install --include=dev --legacy-peer-deps、npm run build、npm run check；构建只使用本仓库源码与公开依赖，不引用相邻工作库。
+`dsh-studio-cineflow` adapts [CineFlow](https://github.com/incldue/CineFlow) as an independently installed DSH studio. It owns the embedded CineFlow page and bridge integration. The DSH worktable supplies the studio container; the external CineFlow service and its data remain separately managed.
 
-Windows 应用服务通过 scripts/start.ps1 启动，必须用 -ElectronPath 或 DSH_STUDIO_ELECTRON 指定本机 Electron；播放历史保存在用户数据目录。
+## Features
 
-## 功能与上游说明
+- Browse recommendations and categorized libraries for films, series, and anime.
+- Search by title, filter by region, type, date range, popularity, rating, and release order.
+- Import, deduplicate, test, enable, and remove playback sources while retaining source metadata.
+- Track playback history, resume from a saved position, and choose subtitles and quality when supported.
+- Cast playback to compatible devices on the same local network.
+- Show service, source, and playback failures from real state instead of replacing them with sample data.
+- Keep embedded layouts usable in narrow windows, with internal scrolling for lists, details, and settings.
 
+## Installation
 
-CineFlow：电影节目发现、片源管理、播放续播与局域网投屏。本插件有独立的页面源码、宿主注册、构建与发布版本。
+This repository declares a DSH bundle at `package.json` → `dsh.bundle.patch`. Install with the DSH Desktop plugin manager. Add the control package first, then this exact tagged source:
 
-功能包括推荐与分类片库、电影/剧集/动漫搜索、地区和日期筛选、片源导入与去重、线路测速、播放历史、断点续播、字幕与清晰度选择，以及通过局域网设备进行投屏。TMDB 配置、片源凭据和播放历史均保存在本机数据目录；未配置外部服务时只显示可用的公开片单。
+```text
+github:1997liuyh-boop/dsh-studio-library#v0.1.3
+github:1997liuyh-boop/dsh-studio-cineflow#v0.2.2
+```
 
-本仓库只负责 DSH 工作室适配和 CineFlow 页面，不会自动安装外部 Electron 服务。Windows 服务启动、数据目录、端口和播放器状态必须使用仓库提供的启动脚本与实际状态；网络片源、TMDB、投屏设备和第三方接口的可用性由外部服务决定。
+Confirm that the plugin manager lists `dsh-studio-cineflow` version `0.2.2`, then open CineFlow. The package requires compatible `dsh-worktable` `^0.6.0` and `dsh-studio-projects` `^0.5.0`, supplied by the control package.
 
-## 限制
+Windows development and service checks use Node.js 22 and npm:
 
-没有 TMDB 凭据时不会伪造推荐结果；外部片源可能失效、需要认证或只支持特定播放器。局域网投屏要求设备与本机在同一网络并支持对应协议；插件不携带推流密钥，也不会自动开播。
+```sh
+npm install --include=dev --legacy-peer-deps
+npm run build
+npm run check
+```
 
-从库根目录构建：`node scripts/build.mjs cineflow`。依赖 dsh-worktable ^0.6.0 与 dsh-studio-projects ^0.5.0。
+The Windows service launcher is `scripts/start.ps1`; provide `-ElectronPath` or `DSH_STUDIO_ELECTRON` for the local Electron executable. The shared-library builder can build this repository with `node scripts/build.mjs cineflow`.
 
-来源及锁定提交见 [UPSTREAM.json](UPSTREAM.json)。完整 CineFlow 源码在 app。首次启动按接口身份导入自定义片源，之后保留用户增删。Windows 启动器在库根 scripts/start-cineflow.ps1，设置 DSH_STUDIO_CINEFLOW_DATA 后与宿主使用同一外置目录。
+## Requirements and limitations
 
-嵌入布局由 `app/src/studio-embedded.css` 使用 Tailwind 单独构建，桥接服务只在工作室模式加载。外层禁止滚动，片单、详情及设置保留内部滚动；标题栏适应窄窗口。独立打开入口携带当前本机桥接凭证。
+TMDB credentials, source credentials, external media services, and casting devices are configured by the user. Without TMDB credentials, the studio uses its public-list mode and does not fabricate recommendations. Sources may expire or require authentication. Casting requires a compatible device on the same network. The plugin does not include streaming keys, automatically start broadcasting, or install the external Electron service and database.
 
-未配置 TMDB 凭据时直接进入公开片单模式，不重试每日推荐。配置后空结果最多重试两次，成功清除提示，失败显示检查凭据或网络的操作说明；手动刷新会取消待执行的重试并忽略旧请求结果。
+## Sources and license
 
-点击右上角“TMDB 配置”，在“手动配置 TMDB”中填入 Read Access Token 或 API Key，二选一后“保存并刷新”。输入框默认掩码，可切换显示；留空保留当前凭据，关闭设置恢复掩码。实际凭据由原应用仅写入本机数据目录，不包含在工作库或插件包中。
-
-顶部“推荐 / 分类片库 / 播放历史”可直接点击切换，与方向键和 Alt+1/2/3 共用页面状态。推荐页保留每日片单、喜好推荐及热映高分片单；分类片库提供电影/节目、出品地区、类别、发布时间的组合筛选，以及热度、评分、最新、最早排序。
-
-发布时间支持逐年、2000 年以前和自定义日期范围，电影使用首映日期、节目使用首次播出日期；自定义范围允许只填一端，点击“应用日期”生效。筛选改变会回到第一页，继续加载时保留条件，可一键重置。连接失败时提供原条件重试；地区或日期筛选失败不会替换成不匹配的公开片单。
-
-电影、剧集、动漫共用一份片源管理。列表按提供商展示，量子、闪电、酷点的多个接口收在同一项中，展开后可以分别测速、删除自定义线路。只有一套导入控件；导入会替换自定义接口，保留内置片源。删除其他线路时保留剩余接口的名称、标识、模式、认证参数及启用状态。
-
-首页“动漫资源”标签页和设置中的“动漫网站与导航”已移除。网页地址本身没有统一的搜索、剧集详情及视频清单，不能直接作为采集 API。现已接入[魔都动漫公开采集接口](https://www.moduzy.com/)，与虎牙、火狐等来源一起参与现有的自动片源查找。2026-10-26 三个来源均实测通过《海贼王》搜索、详情、HLS 清单及播放器 1080p 视频解码，列表标注“含动漫”。樱花资源本轮搜索返回 403，保留原有接口供管理，不标为可播放。
-
-接口去重忽略同一地址的 HTTP/HTTPS、CMS JSON/XML 输出格式及请求动作参数，保留不同域名、不同播放线路与认证查询条件。自定义设置优先于相同的内置接口。提供商分组只影响展示，不会丢弃真正不同的线路。
-
-参考 [TVboxorg/TVbox](https://github.com/TVboxorg/TVbox) 的 `dist/official.json`，引入虎牙、火狐等兼容采集源；记录包含样例检查时间，在轮询中优先使用。TVBox 导入支持 type=0 XML 和 type=1 JSON，跳过需要专用引擎的 CSP/JAR/脚本并报告数量。测速会验证采集数据结构，HTTP 200 的普通网页不会被标记为成功。第三方可用性会变化，可随时重新测速。
-
-片源种子迁移版本 3 清理唐人街 JSON/XML 重复接口；已完成版本 2 迁移的用户不会再次回填删除的源。新安装仍补齐原始清单的不同接口，保留不同镜像及线路。当前默认展示为 41 个提供商、44 条接口，其中自定义 33 条、内置 11 条；包含新增魔都动漫。失败地址保留历史检查状态，可管理和重新测速。
-
-顶部搜索默认使用“片名搜索”，只查电影、剧集和动漫名称，同名作品优先，不再将片名里的“冒险”“爱情”等词转换成类型推荐。“精确片名”只保留显示片名或原名相同的作品，忽略大小写、空格和标点；找别名或部分名称时使用“片名搜索”。“智能推荐”保留心情、天气和类型描述功能。中文输入法组词完成后才查询，快速换词和清空输入会忽略过期搜索及分页响应。连接失败会显示错误并提示回车重试。
-
-2026-10-26 检查 `https://9280.kstore.vip/newwex.json`：配置可读取，但其中 99 个站点全部为 type=3 的 CSP/JAR 线路，没有可直接使用的 JSON/XML 采集接口。导入会明确提示站点数量及引擎不兼容，并保留当前片源；不会将这些线路标为可播放。
-
-## 更新已安装插件
-
-GitHub 代码提交不会自动更新 Desktop profile 中已经锁定的安装版本。请通过插件管理器重新安装本仓库来源；旧共享组合库的用户请先按[控制层迁移步骤](https://github.com/1997liuyh-boop/dsh-studio-library#更新与旧组合库迁移)保留现有子工作室，再移除旧组合库。工作室内升级需要已发布的适配安装包。
+The application source is [incldue/CineFlow](https://github.com/incldue/CineFlow), commit `b32fd8a6ba43dcde4494b7487ebf5d949f65a306`, version `3.4.4`, MIT. Adaptations and the lock record are listed in [UPSTREAM.json](UPSTREAM.json), with third-party notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This DSH adaptation is MIT licensed; see [LICENSE](LICENSE).
