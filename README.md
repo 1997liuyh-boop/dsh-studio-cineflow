@@ -2,7 +2,9 @@
 
 [简体中文](README.zh.md)
 
-**Repository name:** $n\n\n**Repository description:** CineFlow studio for discovering films and shows, managing sources, resuming playback, and casting on a local network.
+**Repository name:** `dsh-studio-cineflow`
+
+**Repository description:** CineFlow studio for discovering films and shows, managing sources, resuming playback, and casting on a local network.
 
 `dsh-studio-cineflow` adapts [CineFlow](https://github.com/incldue/CineFlow) as an independently installed DSH studio. It owns the embedded CineFlow page and bridge integration. The DSH worktable supplies the studio container; the external CineFlow service and its data remain separately managed.
 

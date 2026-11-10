@@ -2,7 +2,9 @@
 
 [English](README.md)
 
-**仓库名称：** $n\n\n**仓库描述：**CineFlow 影音工作室，提供电影和节目发现、片源管理、播放续播与局域网投屏。
+**仓库名称：** `dsh-studio-cineflow`
+
+**仓库描述：**CineFlow 影音工作室，提供电影和节目发现、片源管理、播放续播与局域网投屏。
 
 `dsh-studio-cineflow` 将 [CineFlow](https://github.com/incldue/CineFlow) 适配为独立安装的 DSH 工作室。本插件负责嵌入式 CineFlow 页面和桥接接入；DSH 工作台负责工作室容器，外部 CineFlow 服务及其数据仍独立管理。
 
