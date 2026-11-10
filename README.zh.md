@@ -37,7 +37,7 @@ npm run build
 npm run check
 ```
 
-Windows 服务启动脚本是 `scripts/start.ps1`，使用 `-ElectronPath` 或 `DSH_STUDIO_ELECTRON` 指定本机 Electron。共享工作库可以通过 `node scripts/build.mjs cineflow` 构建本仓库。
+Windows 服务启动脚本是 `scripts/start.ps1`，需要 PowerShell 7.4+。插件不捆绑 Electron，请使用 `-ElectronPath` 或 `DSH_STUDIO_ELECTRON` 指定本机 Electron。共享工作库可以通过 `node scripts/build.mjs cineflow` 构建本仓库。
 
 ## 要求与限制
 

@@ -37,7 +37,7 @@ npm run build
 npm run check
 ```
 
-The Windows service launcher is `scripts/start.ps1`; provide `-ElectronPath` or `DSH_STUDIO_ELECTRON` for the local Electron executable. The shared-library builder can build this repository with `node scripts/build.mjs cineflow`.
+The Windows service launcher is `scripts/start.ps1` and requires PowerShell 7.4+. Electron is not bundled; provide `-ElectronPath` or `DSH_STUDIO_ELECTRON` for a local Electron executable. The shared-library builder can build this repository with `node scripts/build.mjs cineflow`.
 
 ## Requirements and limitations
 
