@@ -2892,9 +2892,10 @@ ipcMain.handle('tmdbAuth:cancel', () => tmdbAuth.cancel());
 
 // 引导路径用：用户在 TMDB 页面复制密钥后回到应用，渲染层轮询这里，识别到就自动填入保存。
 // 只在向导处于"等粘贴"阶段被调用，平时不读剪贴板。
-ipcMain.handle('tmdbAuth:clipboard', () => {
+ipcMain.handle('tmdbAuth:clipboard', async () => {
   let text = '';
-  try { text = tmdbClipboard.readText() || ''; } catch { return { found: false }; }
+  // Electron 44 起 clipboard.readText() 返回 Promise，必须 await；旧版返回字符串，await 同样兼容
+  try { text = String((await tmdbClipboard.readText()) || ''); } catch { return { found: false }; }
   const hit = classifyTmdbCredential(text);
   if (!hit) return { found: false };
   const normalized = normalizeCredential(hit.value);
@@ -2947,7 +2948,8 @@ async function tmdbVerifyCredential(hit) {
 
 ipcMain.handle('tmdbAuth:grab', async () => {
   let text = '';
-  try { text = tmdbClipboard.readText() || ''; } catch { return { found: false }; }
+  // Electron 44 起 clipboard.readText() 返回 Promise，必须 await；旧版返回字符串，await 同样兼容
+  try { text = String((await tmdbClipboard.readText()) || ''); } catch { return { found: false }; }
   const hit = classifyTmdbCredential(text);
   if (!hit) return { found: false };
   if (tmdbGrabReject.value === hit.value) {
