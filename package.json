@@ -1,6 +1,6 @@
 {
   "name": "dsh-studio-cineflow",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "CineFlow：电影节目发现、片源管理、播放续播与局域网投屏",
   "type": "module",
   "license": "MIT",
@@ -12,7 +12,8 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "lib",
@@ -33,7 +34,8 @@
     "app/studio-source-catalog.json",
     "patches",
     "THIRD_PARTY_NOTICES.md",
-    "scripts/start.ps1"
+    "scripts/start.ps1",
+    "locale"
   ],
   "dsh": {
     "bundle": {
