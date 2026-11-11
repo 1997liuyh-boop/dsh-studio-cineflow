@@ -24,7 +24,7 @@
 
 ```text
 github:1997liuyh-boop/dsh-studio-library#v0.1.3
-github:1997liuyh-boop/dsh-studio-cineflow#v0.2.7
+github:1997liuyh-boop/dsh-studio-cineflow#v0.2.8
 ```
 
 确认插件管理器显示 `dsh-studio-cineflow` 版本 `0.2.2`，然后打开 CineFlow。本插件要求兼容的 `dsh-worktable ^0.6.0` 和 `dsh-studio-projects ^0.5.0`，由控制包提供。
