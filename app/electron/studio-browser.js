@@ -7,6 +7,8 @@
     ipcRenderer: {
       async invoke(channel, ...args) {
         if (channel.startsWith('window:')) return { mode: 'normal' };
+        // 应用内更新器在工作室里停用：检查更新返回「由工作室管理」而不是失败，界面据此显示说明
+        if (channel === 'update:check') return { ok: true, managed: true, message: '升级请用工作室的「版本与更新」' };
         if (channel.startsWith('update:')) return { ok: false, error: '请通过 dsh 工作库升级影音插件' };
         const response = await fetch('/studio/rpc', { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ channel, args }) });
         const body = await response.json();

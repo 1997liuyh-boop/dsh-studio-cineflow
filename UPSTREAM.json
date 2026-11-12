@@ -13,6 +13,7 @@
     "app/src/incremental-pages.js",
     "app/src/page-transition.js",
     "app/src/library-page.js",
+    "app/src/update-bubble.js",
     "app/index.html",
     "sources.json",
     "patches/cineflow-studio.patch"

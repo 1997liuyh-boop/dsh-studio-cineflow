@@ -2665,6 +2665,42 @@ index ed23963..a016f97 100644
      return false;
    }
  }
+diff --git a/src/update-bubble.js b/src/update-bubble.js
+index bbbf1e8..c751f6e 100644
+--- a/src/update-bubble.js
++++ b/src/update-bubble.js
+@@ -166,6 +166,7 @@ function openBubble(mode, data = {}) {
+   setText('.cf23-versions', mode === 'update' && data.latest ? `v${data.latest}` : '');
+   const later = document.querySelector('.cf23-later');
+   if (later) later.hidden = false;
++  if (later) later.textContent = mode === 'managed' ? '知道了' : '稍后';
+   if (mode === 'checking') {
+     setText('.cf23-title', '正在检查更新');
+     setText('.cf23-meta', 'api.github.com · 直连');
+@@ -178,6 +179,11 @@ function openBubble(mode, data = {}) {
+     setText('.cf23-title', '已是最新版本');
+     setText('.cf23-meta', `当前 v${data.current}`);
+     setAction('已是最新', { disabled: true });
++  } else if (mode === 'managed') {
++    // 作为 dsh 工作室插件运行：应用内更新器停用，升级由工作室库接管；这是说明，不是错误
++    setText('.cf23-title', '由 dsh 工作室管理');
++    setText('.cf23-meta', String(data.message || '升级请用工作室的「版本与更新」').slice(0, 80));
++    setAction('', { hidden: true });
+   } else {
+     setText('.cf23-title', '检查更新失败');
+     setText('.cf23-meta', String(data.error || '网络不可用').slice(0, 80));
+@@ -199,6 +205,11 @@ async function runCheck({ force = false, silent = false } = {}) {
+   if (!api?.check) return null;
+   if (!silent) openBubble('checking');
+   const result = await api.check({ force }).catch((error) => ({ ok: false, error: String(error?.message || error) }));
++  if (result?.managed) {
++    // 宿主接管了升级：手动点击时给出说明，自动检查保持静默
++    if (!silent) openBubble('managed', result);
++    return result;
++  }
+   if (!result || result.ok === false) {
+     if (!silent) openBubble('error', { error: result?.error || '检查失败' });
+     return result;
 diff --git a/electron/main.cjs b/electron/main.cjs
 index f3c889e..eadf461 100644
 --- a/electron/main.cjs
@@ -3129,10 +3165,10 @@ index 0000000..84d61ca
 +};
 diff --git a/electron/studio-browser.js b/electron/studio-browser.js
 new file mode 100644
-index 0000000..d245222
+index 0000000..ef500bd
 --- /dev/null
 +++ b/electron/studio-browser.js
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,49 @@
 +(() => {
 +  const token = new URLSearchParams(location.hash.slice(1)).get('bridge');
 +  const listeners = new Map();
@@ -3142,6 +3178,8 @@ index 0000000..d245222
 +    ipcRenderer: {
 +      async invoke(channel, ...args) {
 +        if (channel.startsWith('window:')) return { mode: 'normal' };
++        // 应用内更新器在工作室里停用：检查更新返回「由工作室管理」而不是失败，界面据此显示说明
++        if (channel === 'update:check') return { ok: true, managed: true, message: '升级请用工作室的「版本与更新」' };
 +        if (channel.startsWith('update:')) return { ok: false, error: '请通过 dsh 工作库升级影音插件' };
 +        const response = await fetch('/studio/rpc', { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ channel, args }) });
 +        const body = await response.json();

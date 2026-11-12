@@ -166,6 +166,7 @@ function openBubble(mode, data = {}) {
   setText('.cf23-versions', mode === 'update' && data.latest ? `v${data.latest}` : '');
   const later = document.querySelector('.cf23-later');
   if (later) later.hidden = false;
+  if (later) later.textContent = mode === 'managed' ? '知道了' : '稍后';
   if (mode === 'checking') {
     setText('.cf23-title', '正在检查更新');
     setText('.cf23-meta', 'api.github.com · 直连');
@@ -178,6 +179,11 @@ function openBubble(mode, data = {}) {
     setText('.cf23-title', '已是最新版本');
     setText('.cf23-meta', `当前 v${data.current}`);
     setAction('已是最新', { disabled: true });
+  } else if (mode === 'managed') {
+    // 作为 dsh 工作室插件运行：应用内更新器停用，升级由工作室库接管；这是说明，不是错误
+    setText('.cf23-title', '由 dsh 工作室管理');
+    setText('.cf23-meta', String(data.message || '升级请用工作室的「版本与更新」').slice(0, 80));
+    setAction('', { hidden: true });
   } else {
     setText('.cf23-title', '检查更新失败');
     setText('.cf23-meta', String(data.error || '网络不可用').slice(0, 80));
@@ -199,6 +205,11 @@ async function runCheck({ force = false, silent = false } = {}) {
   if (!api?.check) return null;
   if (!silent) openBubble('checking');
   const result = await api.check({ force }).catch((error) => ({ ok: false, error: String(error?.message || error) }));
+  if (result?.managed) {
+    // 宿主接管了升级：手动点击时给出说明，自动检查保持静默
+    if (!silent) openBubble('managed', result);
+    return result;
+  }
   if (!result || result.ok === false) {
     if (!silent) openBubble('error', { error: result?.error || '检查失败' });
     return result;
