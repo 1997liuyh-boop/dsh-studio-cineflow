@@ -16,7 +16,7 @@
 - Filter the TMDB library by region, type, date range, popularity, rating, and release order.
 - Play with ArtPlayer: previous and next episode, autoplay next, intro and outro marks with skipping, and switching sources mid-playback while keeping the episode and position. A failed source opens the source switcher automatically.
 - Track source health: sources that fail repeatedly during search are disabled for 30 minutes, then 24 hours, then indefinitely, and can be restored individually or all at once.
-- Subscribe to LibreTV source list JSON or TVBox configurations with periodic background refresh, export current sources, and still import, test, and remove custom sources.
+- Subscribe to LibreTV source list JSON or TVBox configurations with periodic background refresh and adult entries skipped; three verified public subscriptions are preset on first launch and stay deleted if removed; export current sources, and still import, test, and remove custom sources.
 - Watch live IPTV: M3U sources, groups and search, favorites and recent channels, XMLTV guides, and reachability sorting, with channel switching in the in-app player.
 - Track playback history and resume collector sources directly from the saved position.
 - Cast playback to compatible devices on the same local network.

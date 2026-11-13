@@ -211,7 +211,7 @@
     ${a?`
     <div class="cf5-subs">
       <h4 class="cf5-subtitle">片源订阅</h4>
-      <p class="studio-source-help">填写 LibreTV 源列表 JSON 或 TVBox 配置地址。订阅的点播源与直播源按周期自动更新，单独存放，不会覆盖自定义源；需要专用爬虫的 TVBox 线路会跳过。</p>
+      <p class="studio-source-help">填写 LibreTV 源列表 JSON 或 TVBox 配置地址。订阅的点播源与直播源按周期自动更新，单独存放，不会覆盖自定义源；需要专用爬虫的 TVBox 线路与成人内容会跳过。已预置几个实测可用的公开订阅，不需要可以删除，删除后不会再自动添加。</p>
       <div class="cf5-sub-list" role="list" aria-label="订阅列表"></div>
       <div class="cf5-sub-add">
         <input class="settings-input cf5-sub-url" type="url" spellcheck="false" placeholder="订阅地址，例如 https://example.com/sources.json" aria-label="订阅地址" />
@@ -239,7 +239,7 @@
         </details>`).join("")||'<p class="cf5-empty">暂无播放源</p>'}function T(v){if(v.lastStatus==="error")return`<span class="is-bad">同步失败：${n(v.lastError||"未知错误")}${v.paused?"（已暂停自动更新）":""}</span>`;if(!v.lastSync)return"尚未同步";const S=v.lastCounts||{},N=S.skipped?` · 跳过 ${S.skipped} 条（${n(Object.keys(S.skippedByReason||{}).join("、"))}）`:"";return`${ga(v.lastSync)} 同步 · ${v.sourceCount} 个点播源 · ${v.liveCount} 个直播源${N}`}function x(){p&&(p.innerHTML=m.map(v=>`
       <div class="cf5-sub" role="listitem" data-sub="${n(v.url)}">
         <div class="cf5-item-main">
-          <strong>${n(v.name||v.url)}</strong>
+          <strong>${n(v.name||v.url)}${v.builtin?' <span class="cf5-tag cf5-origin">内置</span>':""}</strong>
           <p class="cf5-api" title="${n(v.url)}">${n(v.url)}</p>
           <p class="cf5-sub-status">${T(v)}</p>
         </div>

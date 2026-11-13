@@ -39,7 +39,7 @@ export function createSourceManager({ api, state, escapeHtml = value => String(v
     ${vodApi ? `
     <div class="cf5-subs">
       <h4 class="cf5-subtitle">片源订阅</h4>
-      <p class="studio-source-help">填写 LibreTV 源列表 JSON 或 TVBox 配置地址。订阅的点播源与直播源按周期自动更新，单独存放，不会覆盖自定义源；需要专用爬虫的 TVBox 线路会跳过。</p>
+      <p class="studio-source-help">填写 LibreTV 源列表 JSON 或 TVBox 配置地址。订阅的点播源与直播源按周期自动更新，单独存放，不会覆盖自定义源；需要专用爬虫的 TVBox 线路与成人内容会跳过。已预置几个实测可用的公开订阅，不需要可以删除，删除后不会再自动添加。</p>
       <div class="cf5-sub-list" role="list" aria-label="订阅列表"></div>
       <div class="cf5-sub-add">
         <input class="settings-input cf5-sub-url" type="url" spellcheck="false" placeholder="订阅地址，例如 https://example.com/sources.json" aria-label="订阅地址" />
@@ -139,7 +139,7 @@ export function createSourceManager({ api, state, escapeHtml = value => String(v
     subListEl.innerHTML = subscriptions.map(item => `
       <div class="cf5-sub" role="listitem" data-sub="${escapeHtml(item.url)}">
         <div class="cf5-item-main">
-          <strong>${escapeHtml(item.name || item.url)}</strong>
+          <strong>${escapeHtml(item.name || item.url)}${item.builtin ? ' <span class="cf5-tag cf5-origin">内置</span>' : ''}</strong>
           <p class="cf5-api" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</p>
           <p class="cf5-sub-status">${subscriptionStatus(item)}</p>
         </div>

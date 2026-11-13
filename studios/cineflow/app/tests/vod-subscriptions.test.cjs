@@ -78,3 +78,52 @@ test('导出为 LibreTV 源列表格式', () => {
   assert.deepEqual(output.sources, [{ name: '量子', url: 'https://a/api.php/provide/vod' }]);
   assert.deepEqual(output.liveSources, [{ name: '电视', url: 'https://b/tv.m3u' }]);
 });
+
+test('内置订阅只预置一次，用户删除后不再补回', () => {
+  const { seedBuiltinSubscriptions, BUILTIN_SUBSCRIPTIONS } = require('../electron/vod-subscriptions.cjs');
+  const settings = { subscriptions: [{ url: BUILTIN_SUBSCRIPTIONS[0].url, name: '用户自己加的' }] };
+  assert.equal(seedBuiltinSubscriptions(settings), true);
+  assert.equal(settings.subscriptions.length, BUILTIN_SUBSCRIPTIONS.length, '已存在的地址不重复添加');
+  assert.equal(settings.subscriptions[0].name, '用户自己加的');
+  assert.ok(settings.subscriptions.slice(1).every((item) => item.builtin && item.refreshDays === 1));
+  settings.subscriptions = [];
+  assert.equal(seedBuiltinSubscriptions(settings), false);
+  assert.deepEqual(settings.subscriptions, []);
+});
+
+test('跳过标记为成人或名称为成人内容的接口', () => {
+  const libre = parseSubscription(JSON.stringify({ sources: [
+    { name: '量子', url: 'https://a.example/api.php/provide/vod' },
+    { name: '某资源', url: 'https://b.example/api.php/provide/vod', isAdult: true },
+    { name: '🔞小鸡资源', url: 'https://c.example/api.php/provide/vod' }
+  ] }));
+  assert.deepEqual(libre.sources.map((source) => source.name), ['量子']);
+  assert.equal(libre.stats.skippedByReason['成人内容'], 2);
+  const tvbox = parseSubscription(JSON.stringify({ sites: [
+    { name: '暴风', type: 1, api: 'https://d.example/api.php/provide/vod' },
+    { name: '福利资源', type: 1, api: 'https://e.example/api.php/provide/vod' }
+  ] }));
+  assert.deepEqual(tvbox.sources.map((source) => source.name), ['暴风']);
+});
+
+test('主地址失败时依次尝试镜像', async () => {
+  const { createSubscriptionService } = require('../electron/vod-subscriptions.cjs');
+  let settings = { subscriptions: [{ url: 'https://main.example/s.json', mirrors: ['https://mirror.example/s.json'], refreshDays: 1 }] };
+  const tried = [];
+  const service = createSubscriptionService({
+    ipcMain: { handle() {} },
+    fetchText: async (url) => {
+      tried.push(url);
+      if (url.startsWith('https://main.')) throw new Error('HTTP 404');
+      return JSON.stringify({ sources: [{ name: '量子', url: 'https://a.example/api.php/provide/vod' }] });
+    },
+    readSettings: () => JSON.parse(JSON.stringify(settings)),
+    writeSettings: (next) => { settings = next; },
+    listExportSources: () => []
+  });
+  const result = await service.sync('https://main.example/s.json', { manual: true });
+  assert.equal(result.ok, true);
+  assert.deepEqual(tried, ['https://main.example/s.json', 'https://mirror.example/s.json']);
+  assert.equal(settings.subscriptionSources.length, 1);
+  assert.equal(settings.subscriptionSources[0].subscription, 'https://main.example/s.json');
+});

@@ -8,6 +8,46 @@ const AUTO_SYNC_CONCURRENCY = 2;
 const AUTO_PAUSE_FAILS = 3; // 自动刷新连续失败几次后暂停
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * 内置订阅：2026-11-13 实测可用、不含成人内容的公开源列表。首次启动预置一次（见 seedBuiltinSubscriptions），
+ * 之后用户删除不会再补回。mirrors 为主地址失败时依次尝试的镜像（jsDelivr 在国内通常比 GitHub 原始地址稳定）。
+ */
+const BUILTIN_SUBSCRIPTIONS = [
+  {
+    url: 'https://cdn.jsdelivr.net/gh/ljfbin2/tv-sources@main/sources.json',
+    mirrors: ['https://raw.githubusercontent.com/ljfbin2/tv-sources/main/sources.json'],
+    name: '龙哥的影视源（LibreTV · 点播 + 直播）'
+  },
+  {
+    url: 'https://gist.githubusercontent.com/yifanwang-yet/dbb7af044d90b5f51c1f32d0e0a200f6/raw/libretv-sources.json',
+    mirrors: [],
+    name: 'yifan 精选源（LibreTV · 点播 + 直播）'
+  },
+  {
+    url: 'https://cdn.jsdelivr.net/gh/TVboxorg/TVbox@main/dist/official.json',
+    mirrors: ['https://raw.githubusercontent.com/TVboxorg/TVbox/main/dist/official.json'],
+    name: 'TVboxorg 官方聚合（TVBox 配置）'
+  }
+];
+const BUILTIN_SEED_VERSION = 1;
+
+// 订阅里标记为成人或名称明显是成人内容的接口一律跳过
+const ADULT_NAME_RE = /🔞|成人|伦理|倫理|福利|色情|里番|番号|麻豆|黄色|av(?:资源|采集)/i;
+
+/** 首次预置内置订阅；已预置过（版本号已记录）时不再补回用户删除的订阅。返回是否有改动。 */
+function seedBuiltinSubscriptions(settings, builtins = BUILTIN_SUBSCRIPTIONS) {
+  if (Number(settings.builtinSubscriptionSeed || 0) >= BUILTIN_SEED_VERSION) return false;
+  const list = Array.isArray(settings.subscriptions) ? [...settings.subscriptions] : [];
+  const known = new Set(list.map((item) => item.url));
+  for (const builtin of builtins) {
+    if (known.has(builtin.url)) continue;
+    list.push({ url: builtin.url, mirrors: builtin.mirrors || [], name: builtin.name, refreshDays: 1, enabled: true, failStreak: 0, builtin: true, addedAt: Date.now() });
+  }
+  settings.subscriptions = list;
+  settings.builtinSubscriptionSeed = BUILTIN_SEED_VERSION;
+  return true;
+}
+
 /** 去掉 BOM、注释与尾逗号，容忍手写 JSON 的常见问题（字符串内的内容保持不变）。 */
 function stripJsonNoise(text) {
   const source = String(text ?? '').replace(/^\uFEFF/, '');
@@ -94,6 +134,10 @@ function tvBoxSite(site, stats) {
     addSkip(stats, '不支持搜索', name);
     return null;
   }
+  if (ADULT_NAME_RE.test(name)) {
+    addSkip(stats, '成人内容', name);
+    return null;
+  }
   const url = cleanUrl(api);
   const isCms = /\/provide\/vod/i.test(url) || type === '1';
   if (!url || !['', '0', '1', '4'].includes(type) || !isCms) {
@@ -171,6 +215,10 @@ function parseSubscription(text) {
         addSkip(stats, '地址无效', entry?.name || '');
         return null;
       }
+      if (entry?.isAdult === true || ADULT_NAME_RE.test(String(entry?.name || ''))) {
+        addSkip(stats, '成人内容', entry?.name || '');
+        return null;
+      }
       return { name: String(entry?.name || hostName(url)).slice(0, 80), url };
     });
     liveSources = liveSources.map((entry) => {
@@ -240,6 +288,27 @@ function createSubscriptionService({ ipcMain, fetchText, readSettings, writeSett
     }));
   }
 
+  /** 依次尝试主地址与镜像，全部失败时抛出主地址的错误。 */
+  async function fetchWithMirrors(url, mirrors = []) {
+    let firstError = null;
+    for (const target of [url, ...(Array.isArray(mirrors) ? mirrors : [])]) {
+      try {
+        return await fetchText(target);
+      } catch (error) {
+        firstError ||= error;
+      }
+    }
+    throw firstError || new Error('订阅拉取失败');
+  }
+
+  /** 启动时预置内置订阅（只执行一次）。 */
+  function seedBuiltins() {
+    const settings = readSettings();
+    if (!seedBuiltinSubscriptions(settings)) return false;
+    writeSettings(settings);
+    return true;
+  }
+
   function save(mutator) {
     const settings = readSettings();
     mutator(settings);
@@ -256,7 +325,7 @@ function createSubscriptionService({ ipcMain, fetchText, readSettings, writeSett
       const existing = listSubscriptions().find((item) => item.url === url);
       if (!existing) throw new Error('订阅不存在');
       try {
-        const parsed = parseSubscription(await fetchText(url));
+        const parsed = parseSubscription(await fetchWithMirrors(url, existing.mirrors));
         save((settings) => {
           settings.subscriptionSources = [
             ...(settings.subscriptionSources || []).filter((source) => source.subscription !== url),
@@ -375,10 +444,12 @@ function createSubscriptionService({ ipcMain, fetchText, readSettings, writeSett
   });
   ipcMain.handle('sources:export', async () => exportSources());
 
-  return { listSubscriptions, add, remove, update, sync, autoSync, exportSources };
+  return { listSubscriptions, add, remove, update, sync, autoSync, exportSources, seedBuiltins };
 }
 
 module.exports = {
+  BUILTIN_SUBSCRIPTIONS,
+  seedBuiltinSubscriptions,
   stripJsonNoise,
   parseSubscription,
   isDue,

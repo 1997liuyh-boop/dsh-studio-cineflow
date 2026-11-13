@@ -464,7 +464,7 @@ index 0000000..eb95120
 +
 +module.exports = { createLiveService, normalizeLiveEntry, decodeText };
 diff --git a/electron/main.cjs b/electron/main.cjs
-index f3c889e..16a5fc3 100644
+index f3c889e..1da0b3a 100644
 --- a/electron/main.cjs
 +++ b/electron/main.cjs
 @@ -1,4 +1,5 @@
@@ -801,7 +801,7 @@ index f3c889e..16a5fc3 100644
    const devUrl = process.env.VITE_DEV_SERVER_URL;
    if (devUrl) {
      mainWindow.loadURL(devUrl);
-@@ -2281,9 +2261,19 @@ function createWindow() {
+@@ -2281,9 +2261,20 @@ function createWindow() {
  
  app.whenReady().then(() => {
    startMediaProxyServer().catch(() => {});
@@ -816,12 +816,13 @@ index f3c889e..16a5fc3 100644
 +  if (studioBridge) studioBridge.start(mainWindow).catch(() => { console.error('影音工作室桥接启动失败，请检查端口和数据目录。'); app.quit(); });
    initNetworkAcceleration();
    applyProxySetting({ force: true }).catch(() => {});
-+  // v0.3.0 启动后静默刷新到期的片源订阅，避开启动高峰
-+  setTimeout(() => { subscriptionService.autoSync().catch(() => {}); }, 8000);
++  // v0.3.1 首次启动预置内置订阅；刚预置时尽快同步，之后启动 8 秒后静默刷新到期的订阅，避开启动高峰
++  const seededBuiltins = (() => { try { return subscriptionService.seedBuiltins(); } catch { return false; } })();
++  setTimeout(() => { subscriptionService.autoSync().catch(() => {}); }, seededBuiltins ? 1500 : 8000);
  
    // v3.4.0 投屏（纯增量）：Web Bluetooth 设备选择回调只用于回捞"实时发现的设备名"给投屏面板，
    // 一律回调空字符串，绝不主动连接任何设备。
-@@ -2394,10 +2384,13 @@ ipcMain.handle('app:testConnection', async () => {
+@@ -2394,10 +2385,13 @@ ipcMain.handle('app:testConnection', async () => {
  ipcMain.handle('tmdb:initial', async () => getInitialData());
  
  ipcMain.handle('tmdb:search', async (_event, query, options = {}) => {
@@ -838,7 +839,7 @@ index f3c889e..16a5fc3 100644
    const moviePromise = tmdbFetch('/search/movie', {
      query: cleanQuery,
      include_adult: false,
-@@ -2412,10 +2405,10 @@ ipcMain.handle('tmdb:search', async (_event, query, options = {}) => {
+@@ -2412,10 +2406,10 @@ ipcMain.handle('tmdb:search', async (_event, query, options = {}) => {
    if (!enrich) {
      const [movieResult, tvResult] = await Promise.all([settle(moviePromise), settle(tvPromise)]);
      if (movieResult.status === 'rejected' && tvResult.status === 'rejected') throw movieResult.reason;
@@ -851,7 +852,7 @@ index f3c889e..16a5fc3 100644
    }
    const personPromise = tmdbFetch('/search/person', {
      query: cleanQuery,
-@@ -2487,12 +2480,12 @@ ipcMain.handle('tmdb:search', async (_event, query, options = {}) => {
+@@ -2487,12 +2481,12 @@ ipcMain.handle('tmdb:search', async (_event, query, options = {}) => {
      }
    }
  
@@ -866,7 +867,7 @@ index f3c889e..16a5fc3 100644
  });
  
  ipcMain.handle('tmdb:discover', async (_event, options = {}) => {
-@@ -2501,17 +2494,22 @@ ipcMain.handle('tmdb:discover', async (_event, options = {}) => {
+@@ -2501,17 +2495,22 @@ ipcMain.handle('tmdb:discover', async (_event, options = {}) => {
      ? options.genreIds.join(genreSeparator)
      : (options.genreId || options.genreIds || undefined);
    const mediaType = String(options.mediaType || 'all').toLowerCase();
@@ -891,7 +892,7 @@ index f3c889e..16a5fc3 100644
      page: options.page || 1,
      region: DEFAULT_REGION
    };
-@@ -2519,12 +2517,14 @@ ipcMain.handle('tmdb:discover', async (_event, options = {}) => {
+@@ -2519,12 +2518,14 @@ ipcMain.handle('tmdb:discover', async (_event, options = {}) => {
      sort_by: options.sortBy || 'popularity.desc',
      with_genres: mapGenreParamToTv(genreValue),
      without_genres: mapGenreParamToTv(options.withoutGenreIds),
@@ -908,7 +909,7 @@ index f3c889e..16a5fc3 100644
      page: options.page || 1
    };
    const tasks = [];
-@@ -2757,6 +2757,62 @@ ipcMain.handle('image:relay', async (_event, payload = {}) => {
+@@ -2757,6 +2758,62 @@ ipcMain.handle('image:relay', async (_event, payload = {}) => {
     defaultSession.fetch 发请求（与 resourceFetchJson 同一条通道，量出来的才是真实手感）。
     刻意不走 resourceResponseCache —— 命中缓存的第二次测速会报出 ~0ms 的假速度。
  */
@@ -971,7 +972,7 @@ index f3c889e..16a5fc3 100644
  ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
    const key = String(payload?.key || '');
    const apiValue = String(payload?.api || '');
-@@ -2788,10 +2844,11 @@ ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
+@@ -2788,10 +2845,11 @@ ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
      });
      const elapsedMs = Date.now() - startedAt;
      const text = await response.text().catch(() => '');
@@ -985,7 +986,7 @@ index f3c889e..16a5fc3 100644
    } catch (error) {
      const elapsedMs = Date.now() - startedAt;
      const aborted = error?.name === 'AbortError' || controller.signal.aborted;
-@@ -2870,9 +2927,10 @@ ipcMain.handle('tmdbAuth:cancel', () => tmdbAuth.cancel());
+@@ -2870,9 +2928,10 @@ ipcMain.handle('tmdbAuth:cancel', () => tmdbAuth.cancel());
  
  // 引导路径用：用户在 TMDB 页面复制密钥后回到应用，渲染层轮询这里，识别到就自动填入保存。
  // 只在向导处于"等粘贴"阶段被调用，平时不读剪贴板。
@@ -998,7 +999,7 @@ index f3c889e..16a5fc3 100644
    const hit = classifyTmdbCredential(text);
    if (!hit) return { found: false };
    const normalized = normalizeCredential(hit.value);
-@@ -2925,7 +2983,8 @@ async function tmdbVerifyCredential(hit) {
+@@ -2925,7 +2984,8 @@ async function tmdbVerifyCredential(hit) {
  
  ipcMain.handle('tmdbAuth:grab', async () => {
    let text = '';
@@ -2165,10 +2166,10 @@ index 0000000..0a9a57e
 +module.exports = { createVodService, MAX_PAGES, SOURCE_DEADLINE_MS };
 diff --git a/electron/vod-subscriptions.cjs b/electron/vod-subscriptions.cjs
 new file mode 100644
-index 0000000..dc6ab97
+index 0000000..d97bb63
 --- /dev/null
 +++ b/electron/vod-subscriptions.cjs
-@@ -0,0 +1,388 @@
+@@ -0,0 +1,459 @@
 +// 片源订阅：解析远程源列表（LibreTV-SourceList JSON / TVBox 配置），定期静默刷新，导出当前片源。
 +// 订阅格式参考 LibreTV-Next 的公开约定，代码为独立实现。订阅导入的接口单独存放，不覆盖用户的自定义源。
 +
@@ -2178,6 +2179,46 @@ index 0000000..dc6ab97
 +const AUTO_SYNC_CONCURRENCY = 2;
 +const AUTO_PAUSE_FAILS = 3; // 自动刷新连续失败几次后暂停
 +const DAY_MS = 24 * 60 * 60 * 1000;
++
++/**
++ * 内置订阅：2026-11-13 实测可用、不含成人内容的公开源列表。首次启动预置一次（见 seedBuiltinSubscriptions），
++ * 之后用户删除不会再补回。mirrors 为主地址失败时依次尝试的镜像（jsDelivr 在国内通常比 GitHub 原始地址稳定）。
++ */
++const BUILTIN_SUBSCRIPTIONS = [
++  {
++    url: 'https://cdn.jsdelivr.net/gh/ljfbin2/tv-sources@main/sources.json',
++    mirrors: ['https://raw.githubusercontent.com/ljfbin2/tv-sources/main/sources.json'],
++    name: '龙哥的影视源（LibreTV · 点播 + 直播）'
++  },
++  {
++    url: 'https://gist.githubusercontent.com/yifanwang-yet/dbb7af044d90b5f51c1f32d0e0a200f6/raw/libretv-sources.json',
++    mirrors: [],
++    name: 'yifan 精选源（LibreTV · 点播 + 直播）'
++  },
++  {
++    url: 'https://cdn.jsdelivr.net/gh/TVboxorg/TVbox@main/dist/official.json',
++    mirrors: ['https://raw.githubusercontent.com/TVboxorg/TVbox/main/dist/official.json'],
++    name: 'TVboxorg 官方聚合（TVBox 配置）'
++  }
++];
++const BUILTIN_SEED_VERSION = 1;
++
++// 订阅里标记为成人或名称明显是成人内容的接口一律跳过
++const ADULT_NAME_RE = /🔞|成人|伦理|倫理|福利|色情|里番|番号|麻豆|黄色|av(?:资源|采集)/i;
++
++/** 首次预置内置订阅；已预置过（版本号已记录）时不再补回用户删除的订阅。返回是否有改动。 */
++function seedBuiltinSubscriptions(settings, builtins = BUILTIN_SUBSCRIPTIONS) {
++  if (Number(settings.builtinSubscriptionSeed || 0) >= BUILTIN_SEED_VERSION) return false;
++  const list = Array.isArray(settings.subscriptions) ? [...settings.subscriptions] : [];
++  const known = new Set(list.map((item) => item.url));
++  for (const builtin of builtins) {
++    if (known.has(builtin.url)) continue;
++    list.push({ url: builtin.url, mirrors: builtin.mirrors || [], name: builtin.name, refreshDays: 1, enabled: true, failStreak: 0, builtin: true, addedAt: Date.now() });
++  }
++  settings.subscriptions = list;
++  settings.builtinSubscriptionSeed = BUILTIN_SEED_VERSION;
++  return true;
++}
 +
 +/** 去掉 BOM、注释与尾逗号，容忍手写 JSON 的常见问题（字符串内的内容保持不变）。 */
 +function stripJsonNoise(text) {
@@ -2265,6 +2306,10 @@ index 0000000..dc6ab97
 +    addSkip(stats, '不支持搜索', name);
 +    return null;
 +  }
++  if (ADULT_NAME_RE.test(name)) {
++    addSkip(stats, '成人内容', name);
++    return null;
++  }
 +  const url = cleanUrl(api);
 +  const isCms = /\/provide\/vod/i.test(url) || type === '1';
 +  if (!url || !['', '0', '1', '4'].includes(type) || !isCms) {
@@ -2342,6 +2387,10 @@ index 0000000..dc6ab97
 +        addSkip(stats, '地址无效', entry?.name || '');
 +        return null;
 +      }
++      if (entry?.isAdult === true || ADULT_NAME_RE.test(String(entry?.name || ''))) {
++        addSkip(stats, '成人内容', entry?.name || '');
++        return null;
++      }
 +      return { name: String(entry?.name || hostName(url)).slice(0, 80), url };
 +    });
 +    liveSources = liveSources.map((entry) => {
@@ -2411,6 +2460,27 @@ index 0000000..dc6ab97
 +    }));
 +  }
 +
++  /** 依次尝试主地址与镜像，全部失败时抛出主地址的错误。 */
++  async function fetchWithMirrors(url, mirrors = []) {
++    let firstError = null;
++    for (const target of [url, ...(Array.isArray(mirrors) ? mirrors : [])]) {
++      try {
++        return await fetchText(target);
++      } catch (error) {
++        firstError ||= error;
++      }
++    }
++    throw firstError || new Error('订阅拉取失败');
++  }
++
++  /** 启动时预置内置订阅（只执行一次）。 */
++  function seedBuiltins() {
++    const settings = readSettings();
++    if (!seedBuiltinSubscriptions(settings)) return false;
++    writeSettings(settings);
++    return true;
++  }
++
 +  function save(mutator) {
 +    const settings = readSettings();
 +    mutator(settings);
@@ -2427,7 +2497,7 @@ index 0000000..dc6ab97
 +      const existing = listSubscriptions().find((item) => item.url === url);
 +      if (!existing) throw new Error('订阅不存在');
 +      try {
-+        const parsed = parseSubscription(await fetchText(url));
++        const parsed = parseSubscription(await fetchWithMirrors(url, existing.mirrors));
 +        save((settings) => {
 +          settings.subscriptionSources = [
 +            ...(settings.subscriptionSources || []).filter((source) => source.subscription !== url),
@@ -2546,10 +2616,12 @@ index 0000000..dc6ab97
 +  });
 +  ipcMain.handle('sources:export', async () => exportSources());
 +
-+  return { listSubscriptions, add, remove, update, sync, autoSync, exportSources };
++  return { listSubscriptions, add, remove, update, sync, autoSync, exportSources, seedBuiltins };
 +}
 +
 +module.exports = {
++  BUILTIN_SUBSCRIPTIONS,
++  seedBuiltinSubscriptions,
 +  stripJsonNoise,
 +  parseSubscription,
 +  isDue,
@@ -5739,7 +5811,7 @@ index 0000000..13056ce
 +  return null;
 +}
 diff --git a/src/source-manager.js b/src/source-manager.js
-index ed23963..d21c1e4 100644
+index ed23963..9b61df1 100644
 --- a/src/source-manager.js
 +++ b/src/source-manager.js
 @@ -1,411 +1,339 @@
@@ -5823,7 +5895,7 @@ index ed23963..d21c1e4 100644
 +    ${vodApi ? `
 +    <div class="cf5-subs">
 +      <h4 class="cf5-subtitle">片源订阅</h4>
-+      <p class="studio-source-help">填写 LibreTV 源列表 JSON 或 TVBox 配置地址。订阅的点播源与直播源按周期自动更新，单独存放，不会覆盖自定义源；需要专用爬虫的 TVBox 线路会跳过。</p>
++      <p class="studio-source-help">填写 LibreTV 源列表 JSON 或 TVBox 配置地址。订阅的点播源与直播源按周期自动更新，单独存放，不会覆盖自定义源；需要专用爬虫的 TVBox 线路与成人内容会跳过。已预置几个实测可用的公开订阅，不需要可以删除，删除后不会再自动添加。</p>
 +      <div class="cf5-sub-list" role="list" aria-label="订阅列表"></div>
 +      <div class="cf5-sub-add">
 +        <input class="settings-input cf5-sub-url" type="url" spellcheck="false" placeholder="订阅地址，例如 https://example.com/sources.json" aria-label="订阅地址" />
@@ -6025,7 +6097,7 @@ index ed23963..d21c1e4 100644
 +    subListEl.innerHTML = subscriptions.map(item => `
 +      <div class="cf5-sub" role="listitem" data-sub="${escapeHtml(item.url)}">
 +        <div class="cf5-item-main">
-+          <strong>${escapeHtml(item.name || item.url)}</strong>
++          <strong>${escapeHtml(item.name || item.url)}${item.builtin ? ' <span class="cf5-tag cf5-origin">内置</span>' : ''}</strong>
 +          <p class="cf5-api" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</p>
 +          <p class="cf5-sub-status">${subscriptionStatus(item)}</p>
 +        </div>

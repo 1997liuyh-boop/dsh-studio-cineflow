@@ -2272,8 +2272,9 @@ app.whenReady().then(() => {
   if (studioBridge) studioBridge.start(mainWindow).catch(() => { console.error('影音工作室桥接启动失败，请检查端口和数据目录。'); app.quit(); });
   initNetworkAcceleration();
   applyProxySetting({ force: true }).catch(() => {});
-  // v0.3.0 启动后静默刷新到期的片源订阅，避开启动高峰
-  setTimeout(() => { subscriptionService.autoSync().catch(() => {}); }, 8000);
+  // v0.3.1 首次启动预置内置订阅；刚预置时尽快同步，之后启动 8 秒后静默刷新到期的订阅，避开启动高峰
+  const seededBuiltins = (() => { try { return subscriptionService.seedBuiltins(); } catch { return false; } })();
+  setTimeout(() => { subscriptionService.autoSync().catch(() => {}); }, seededBuiltins ? 1500 : 8000);
 
   // v3.4.0 投屏（纯增量）：Web Bluetooth 设备选择回调只用于回捞"实时发现的设备名"给投屏面板，
   // 一律回调空字符串，绝不主动连接任何设备。
