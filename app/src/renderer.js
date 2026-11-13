@@ -2,10 +2,17 @@
 import { createAdFilteringLoader } from './ad-filter.js';
 import { applyIntentExtras } from './intent-extras.js';
 import { cleanSearchQuery } from './dual-search.js';
+import { createVodSearchEngine, createVodWorkView, renderVodCard, rankGroupsForTitle, exactGroups } from './vod-search.js';
+import { normalizeTitle as normalizeVodTitle } from '../electron/vod-core.mjs'; // v0.3.0 采集站优先的聚合搜索
 import { initIncrementalCast } from './incremental-cast.js'; // v3.4.0 纯增量：投屏装配入口
 import { initIncrementalPages } from './incremental-pages.js'; // v3.4.0 纯增量：分类片库 / 播放历史 / 三页切换装配入口
+// v0.3.0 ArtPlayer 播放器外壳：模块加载时即接管 #resourcePlayer，必须在读取 DOM 之前导入
+import { initVodPlayer } from './vod-player.js';
 
 const api = window.cineflow;
+// v0.3.0 采集站聚合搜索接口；缺失时（旧宿主）回退到原 TMDB 搜索与单条片源匹配
+const vodApi = window.cineflowVod || null;
+const vodEngine = vodApi ? createVodSearchEngine(vodApi) : null;
 const IMAGE_BASE = 'https://image.tmdb.org/t/p';
 const POSTER_SIZE = 'w500';
 const CARD_POSTER_SIZE = 'w342';
@@ -1952,6 +1959,8 @@ async function search(query) {
   if (!query) return resetSearchResults();
   const searchId = ++state.activeSearchId;
   const mode = dom.searchMode?.value || 'title';
+  // 片名搜索 / 精确片名改走采集站聚合搜索，智能推荐仍走 TMDB
+  if (mode !== 'recommend' && vodEngine) return searchVod(query, searchId, mode);
   const intent = mode === 'recommend' ? extractPromptIntent(query) : null;
   const railOptions = buildSearchRailOptions(query, intent, mode);
   dom.searchSection.classList.remove('is-hidden');
@@ -2686,6 +2695,8 @@ function setPlayerLoading(isLoading, title = '正在加载', subtitle = '高清�
 }
 
 function setPlayerError(message) {
+  // 通知播放器模块：所有回退都失败了（有其它来源时会自动弹出换源面板）
+  window.dispatchEvent(new CustomEvent('cineflow:player-error', { detail: { message: message || '' } }));
   dom.playerStage?.classList.add('has-error');
   dom.playerError?.classList.remove('is-hidden');
   const span = dom.playerError?.querySelector('span');
@@ -3120,7 +3131,9 @@ function playPlayerEpisode(index) {
     playlistId: state.player.playlistId,
     playlist,
     episodeIndex,
-    playbackMode: state.player.playbackMode
+    playbackMode: state.player.playbackMode,
+    vod: state.player.vod,
+    live: state.player.live
   });
 }
 
@@ -3254,15 +3267,17 @@ async function startPlayerTransport(loadId, mediaKind, playbackUrl) {
         setPlayerStatus('FLV 解析中...');
         playerFlv = FlvEngine.createPlayer({
           type: 'flv',
-          isLive: false,
+          // 直播频道按直播流处理，点播保持原设置
+          isLive: Boolean(state.player.live),
           hasAudio: true,
           hasVideo: true,
           url: playbackUrl
         }, {
-          enableWorker: true,
-          enableStashBuffer: true,
+          // flv.js 的 Worker 在打包后无法加载内部模块（Class extends value undefined），改为主线程转封装
+          enableWorker: false,
+          enableStashBuffer: !state.player.live,
           stashInitialSize: 1024 * 320,
-          lazyLoad: true,
+          lazyLoad: !state.player.live,
           lazyLoadMaxDuration: 150,
           reuseRedirectedURL: true,
           autoCleanupSourceBuffer: true,
@@ -3387,7 +3402,11 @@ async function openResourcePlayer(payload = {}) {
     proxyUrlPromise: null,
     recoveries: 0,
     loadId,
-    seeking: false
+    seeking: false,
+    // 采集站来源信息（换源、续播、历史记录使用）；旧 TMDB 详情页入口为 null
+    vod: payload.vod || null,
+    // 直播频道：不记录播放历史，播放列表即同组频道
+    live: Boolean(payload.live)
   };
 
   // Playback proxy preference: force the local media proxy so the main process
@@ -3626,6 +3645,7 @@ function setResourceStatus(section, message, options = {}) {
 }
 
 async function loadDetailResources(details) {
+  if (vodEngine) return loadDetailResourcesVod(details);
   state.lastRenderedDetail = details;
   const section = dom.detailContent.querySelector('#detailResources');
   const list = dom.detailContent.querySelector('#resourceResults');
@@ -4309,6 +4329,9 @@ initIncrementalCast({ api, state, escapeHtml });
 // v3.4.0 纯增量：分类片库 / 播放历史 / 三页切换，异常自动跳过、基线首页不进 3D
 initIncrementalPages({ api, state, escapeHtml });
 
+// v0.3.0 ArtPlayer 播放器功能：上一集 / 下一集、自动连播、片头片尾跳过、播放中换源
+initVodPlayer({ state, escapeHtml, toast, playEpisode: playPlayerEpisode });
+
 // v3.4.3 第三十一轮纯增量：只是把已有的播放器入口多开一个门（原有 2544 / 3129 两处调用一行未改），
 // 供"无 TMDB 凭证"时豆瓣摘要卡下面那条线路使用 —— 播放器、resolve、代理、广告过滤全是基线那一套。
 window.__cineflowOpenResourcePlayer = (payload) => openResourcePlayer(payload);
@@ -4316,3 +4339,310 @@ window.__cineflowOpenResourcePlayer = (payload) => openResourcePlayer(payload);
 
 
 
+
+// ===== v0.3.0 采集站聚合搜索：渲染层装配（顶部搜索、作品面板、TMDB 详情页片源） =====
+const vodState = { groups: new Map(), work: null, showNoise: false, query: '', mode: 'title', lastProgress: null, searchId: 0 };
+let vodWorkViewInstance = null;
+
+function vodWorkView() {
+  vodWorkViewInstance ||= createVodWorkView({ vodApi, escapeHtml, onPlay: playVodEpisode, onMeta: applyVodMeta });
+  return vodWorkViewInstance;
+}
+
+/** 顶部搜索：采集站分批并发，结果边到边聚合渲染（节流 220ms）。 */
+async function searchVod(query, searchId, mode) {
+  vodState.query = query;
+  vodState.mode = mode;
+  vodState.showNoise = false;
+  vodState.lastProgress = null;
+  vodState.searchId = searchId;
+  dom.searchSection.classList.remove('is-hidden');
+  dom.searchTitle.textContent = `“${query}” 的${mode === 'exact' ? '精确片名' : '片名搜索'}结果`;
+  dom.searchHint.textContent = '正在搜索采集站…';
+  hideMoreButtonForRail(dom.searchRail);
+  showRailLoading(dom.searchRail, 8);
+  addRecentSearch(query);
+  let lastRenderAt = 0;
+  let pendingTimer = 0;
+  const isCurrent = () => searchId === state.activeSearchId;
+  try {
+    await vodEngine.run(query, {
+      isCurrent,
+      onProgress: (progress) => {
+        vodState.lastProgress = progress;
+        window.clearTimeout(pendingTimer);
+        const now = performance.now();
+        if (progress.done || now - lastRenderAt > 220) {
+          lastRenderAt = now;
+          renderVodSearchResults(progress);
+          return;
+        }
+        pendingTimer = window.setTimeout(() => {
+          if (!isCurrent()) return;
+          lastRenderAt = performance.now();
+          renderVodSearchResults(vodState.lastProgress);
+        }, 220);
+      }
+    });
+  } catch (error) {
+    if (!isCurrent()) return;
+    dom.searchHint.textContent = '搜索失败';
+    hideMoreButtonForRail(dom.searchRail);
+    showRailEmpty(dom.searchRail, `${readableError(error)}；按回车重试。`);
+  }
+}
+
+function renderVodSearchResults(progress) {
+  if (!progress || vodState.searchId !== state.activeSearchId) return;
+  const rail = dom.searchRail;
+  const groups = vodState.mode === 'exact' ? exactGroups(progress.groups, vodState.query) : progress.groups;
+  const main = groups.filter((group) => !group.noise);
+  const noise = groups.filter((group) => group.noise);
+  vodState.groups = new Map(groups.map((group) => [group.key, group]));
+  const failed = progress.failures.length;
+  dom.searchHint.textContent = [
+    progress.done ? '搜索完成' : '搜索中',
+    `已查 ${progress.checked}/${progress.total} 个片源`,
+    `${main.length} 部作品`,
+    failed ? `${failed} 个片源失败` : ''
+  ].filter(Boolean).join(' · ');
+  if (progress.done && progress.disabledEvents?.length) {
+    toast(`${progress.disabledEvents.length} 个片源连续失败，已暂时停用（可在设置 → 片源管理中恢复）`);
+  }
+  if (!main.length && !noise.length) {
+    if (!progress.done) return;
+    hideMoreButtonForRail(rail);
+    showRailEmpty(rail, vodState.mode === 'exact'
+      ? '没有找到同名作品，可切换“片名搜索”尝试别名或部分片名。'
+      : (progress.total ? '采集站没有找到相关作品，试试换一个关键词或别名。' : '当前没有可用的采集站，请在设置 → 片源管理中添加或恢复。'));
+    return;
+  }
+  const cards = [...main, ...(vodState.showNoise ? noise : [])].map((group) => renderVodCard(group, escapeHtml)).join('');
+  const noiseToggle = noise.length
+    ? `<button class="vod-noise-toggle" type="button" data-vod-noise="1">${vodState.showNoise ? '收起' : '显示'}相关解说 / 预告 ${noise.length} 条</button>`
+    : '';
+  rail.innerHTML = cards + noiseToggle;
+  if (!rail.classList.contains('is-expanded')) setupRailMore(dom.searchMoreBtn, rail, main.length, null);
+}
+
+function openDetailShell(html) {
+  syncDetailWaveMetrics();
+  startDetailRipple('open', { metricsSynced: true });
+  dom.detailPanel.classList.add('is-open');
+  dom.detailPanel.setAttribute('aria-hidden', 'false');
+  setDetailHandleState(true);
+  dom.detailContent.innerHTML = html;
+  resetDetailScroll();
+}
+
+/** 作品面板：海报与简介 + 全部来源（并发测速）+ 线路选集。 */
+function openVodWork(group, { preferSourceKey = '' } = {}) {
+  vodState.work?.destroy();
+  state.activeResourceSearchId += 1;
+  state.lastDetailMovieId = `vod:${group.key}`;
+  state.lastDetailMediaType = 'vod';
+  const meta = [group.year, group.typeName, group.area, group.remarks].filter(Boolean);
+  openDetailShell(`
+    <div class="detail-backdrop vod-backdrop"></div>
+    <div class="detail-hero vod-hero" data-vod-work="${escapeHtml(group.key)}">
+      <div class="detail-poster">
+        ${group.pic ? `<img src="${escapeHtml(group.pic)}" alt="${escapeHtml(group.name)} 海报" decoding="async" referrerpolicy="no-referrer" />` : '<div class="poster-fallback">暂无海报</div>'}
+      </div>
+      <div class="detail-info">
+        <p class="eyebrow">采集站聚合 · ${group.sourceCount} 个来源</p>
+        <h2>${escapeHtml(group.name)}</h2>
+        <div class="meta-row">
+          <span class="vod-score" hidden></span>
+          ${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}
+        </div>
+        <p class="overview vod-overview">正在读取简介…</p>
+        <p class="vod-credits"></p>
+      </div>
+    </div>
+    <section class="detail-resources vod-resources"><div class="vod-work-body"></div></section>
+  `);
+  const body = dom.detailContent.querySelector('.vod-work-body');
+  vodState.work = vodWorkView().renderWork(body, group, { preferSourceKey });
+  enrichVodWithTmdb(group);
+}
+
+function vodHeroFor(group) {
+  const hero = dom.detailContent.querySelector('.vod-hero');
+  return hero && hero.getAttribute('data-vod-work') === group.key ? hero : null;
+}
+
+/** 采集站详情回来后补全简介、主创与海报（TMDB 已补全的字段不覆盖）。 */
+function applyVodMeta(meta, group) {
+  const hero = vodHeroFor(group);
+  if (!hero || !meta) return;
+  const overview = hero.querySelector('.vod-overview');
+  if (overview && overview.dataset.source !== 'tmdb') {
+    overview.textContent = meta.content || '暂无简介。';
+    overview.dataset.source = 'cms';
+  }
+  const credits = hero.querySelector('.vod-credits');
+  if (credits && !credits.textContent) {
+    credits.textContent = [meta.director ? `导演：${meta.director}` : '', meta.actor ? `主演：${meta.actor}` : ''].filter(Boolean).join('　');
+  }
+  const poster = hero.querySelector('.detail-poster');
+  if (poster && !poster.querySelector('img') && meta.pic) {
+    poster.innerHTML = `<img src="${escapeHtml(meta.pic)}" alt="${escapeHtml(meta.name)} 海报" decoding="async" referrerpolicy="no-referrer" />`;
+  }
+}
+
+/** 配置了 TMDB 凭据时，按片名 + 年份精确匹配，补充评分、简介与高清海报。 */
+async function enrichVodWithTmdb(group) {
+  if (!state.credential?.configured || !api.searchMovies) return;
+  try {
+    const results = await api.searchMovies(group.name, { match: 'exact' });
+    const candidates = Array.isArray(results) ? results : [];
+    const match = candidates.find((movie) => group.year && (movie.releaseDate || '').startsWith(group.year))
+      || (!group.year ? candidates[0] : null);
+    const hero = vodHeroFor(group);
+    if (!match || !hero) return;
+    const score = hero.querySelector('.vod-score');
+    if (score && Number(match.voteAverage) > 0) {
+      score.hidden = false;
+      score.textContent = `★ ${Number(match.voteAverage).toFixed(1)}`;
+    }
+    const overview = hero.querySelector('.vod-overview');
+    if (overview && match.overview) {
+      overview.textContent = match.overview;
+      overview.dataset.source = 'tmdb';
+    }
+    const poster = imageUrl(match.posterPath, POSTER_SIZE);
+    if (poster) hero.querySelector('.detail-poster').innerHTML = `<img src="${poster}" alt="${escapeHtml(group.name)} 海报" decoding="async" />`;
+    const backdrop = imageUrl(match.backdropPath, BACKDROP_SIZE);
+    const backdropEl = dom.detailContent.querySelector('.vod-backdrop');
+    if (backdrop && backdropEl) backdropEl.style.backgroundImage = `url('${backdrop}')`;
+  } catch {
+    // TMDB 只是补充信息，失败时保留采集站数据
+  }
+}
+
+/** 播放某来源的某一集：登记播放列表后交给现有播放器（直连 / 代理 / 广告过滤沿用原逻辑）。 */
+function playVodEpisode({ group, item, detail, lineIndex = 0, episodeIndex = 0, alternatives = [] }) {
+  const line = detail?.lines?.[lineIndex];
+  if (!line) return;
+  const title = group?.name || detail.meta?.name || '影视资源';
+  const { playlistId, playlist } = registerResourceLinePlaylist({}, line, lineIndex, item.sourceName, title);
+  const episode = playlist[episodeIndex] || playlist[0];
+  if (!episode) return;
+  openResourcePlayer({
+    url: episode.url,
+    kind: episode.kind,
+    format: episode.format,
+    needsResolve: episode.needsResolve,
+    playlistId,
+    episodeIndex: episode.episodeIndex,
+    title,
+    sourceName: item.sourceName,
+    lineName: episode.lineName,
+    label: episode.label,
+    vod: {
+      sourceKey: item.sourceKey,
+      vodId: item.vodId,
+      sourceName: item.sourceName,
+      title,
+      year: group?.year || detail.meta?.year || '',
+      pic: group?.pic || detail.meta?.pic || '',
+      lineIndex,
+      lineName: line.name,
+      // 作品面板传入 { item, detail }，播放器换源传入已整理好的 { sourceKey, vodId, sourceName, ms }
+      alternatives: alternatives.map((entry) => (entry.item ? {
+        sourceKey: entry.item.sourceKey,
+        vodId: entry.item.vodId,
+        sourceName: entry.item.sourceName,
+        ms: entry.detail?.ms ?? null
+      } : entry))
+    }
+  });
+}
+
+/** TMDB 详情页的「可用资源」：用片名搜索采集站，列出匹配作品（剧集会列出全部篇章 / 季）。 */
+async function loadDetailResourcesVod(details) {
+  const section = dom.detailContent.querySelector('#detailResources');
+  const list = dom.detailContent.querySelector('#resourceResults');
+  if (!section || !list) return;
+  const searchId = ++state.activeResourceSearchId;
+  vodState.work?.destroy();
+  section.querySelector('#resourceModeBadge').textContent = '采集站聚合';
+  list.innerHTML = '<div class="resource-pulse">正在搜索采集站，找到后列出匹配的作品与来源…</div>';
+  setResourceStatus(section, '正在搜索采集站…');
+  const year = (details.releaseDate || '').slice(0, 4);
+  const options = { title: details.title, originalTitle: details.originalTitle, year, mediaType: mediaTypeOf(details) };
+  const isCurrent = () => searchId === state.activeResourceSearchId;
+  const runFor = (query) => vodEngine.run(query, {
+    isCurrent,
+    onProgress: (progress) => {
+      const matched = rankGroupsForTitle(progress.groups, options);
+      setResourceStatus(section, `${progress.done ? '搜索完成' : '正在搜索'} · 已查 ${progress.checked}/${progress.total} 个片源 · 匹配 ${matched.length} 部作品`);
+    }
+  });
+  try {
+    let result = await runFor(details.title);
+    let matched = rankGroupsForTitle(result.groups, options);
+    if (!matched.length && details.originalTitle && details.originalTitle !== details.title && isCurrent()) {
+      result = await runFor(details.originalTitle);
+      matched = rankGroupsForTitle(result.groups, options);
+    }
+    if (!isCurrent()) return;
+    if (!matched.length) {
+      list.innerHTML = '<div class="resource-empty">采集站暂未找到同名资源，可在顶部搜索框用别名或原名再试。</div>';
+      setResourceStatus(section, `搜索完成 · 已查 ${result.checked}/${result.total} 个片源`, { muted: true });
+      return;
+    }
+    vodState.work = vodWorkView().renderMatches(list, matched.slice(0, 16));
+  } catch (error) {
+    if (!isCurrent()) return;
+    list.innerHTML = '<div class="resource-empty">采集站搜索暂时不可用，稍后可重新打开介绍页再试。</div>';
+    setResourceStatus(section, readableError(error), { muted: true });
+  }
+}
+
+// 聚合卡片与「相关解说」开关的事件委托（聚合卡片没有 TMDB 编号，原卡片委托会忽略它们）
+document.addEventListener('click', (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('[data-vod-noise]')) {
+    vodState.showNoise = !vodState.showNoise;
+    renderVodSearchResults(vodState.lastProgress);
+    return;
+  }
+  const card = target?.closest('.vod-card[data-vod-key]');
+  const group = card ? vodState.groups.get(card.getAttribute('data-vod-key')) : null;
+  if (group) openVodWork(group);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const card = event.target instanceof Element ? event.target.closest('.vod-card[data-vod-key]') : null;
+  const group = card ? vodState.groups.get(card.getAttribute('data-vod-key')) : null;
+  if (!group) return;
+  event.preventDefault();
+  openVodWork(group);
+});
+
+// 片源、订阅或健康度变化后，下一次搜索重新读取可用片源
+window.addEventListener('cineflow:resource-settings', () => vodEngine?.invalidate());
+
+// 供续播、播放器换源等模块直接打开采集站来源
+window.__cineflowVod = {
+  openWork: openVodWork,
+  play: playVodEpisode,
+  detail: (sourceKey, vodId) => vodApi?.detail(sourceKey, vodId),
+  search: (query, options) => vodEngine?.run(query, options),
+  // 播放历史「详情」：按片名 + 年份重新搜索并打开对应作品（优先上次的来源）
+  openByTitle: async (title, year = '', preferSourceKey = '') => {
+    if (!vodEngine || !title) return false;
+    toast(`正在查找「${title}」的来源…`);
+    const result = await vodEngine.run(title).catch(() => null);
+    const target = normalizeVodTitle(title);
+    const groups = (result?.groups || []).filter((group) => normalizeVodTitle(group.name) === target);
+    const group = groups.find((entry) => !year || !entry.year || entry.year === String(year)) || groups[0];
+    if (!group) {
+      toast('采集站暂时没有找到这部作品');
+      return false;
+    }
+    openVodWork(group, { preferSourceKey });
+    return true;
+  }
+};

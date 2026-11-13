@@ -54,56 +54,23 @@ const PLAYBACK_TRANSPORT_MODES = {
   proxy: { label: '本地代理优先', description: '始终通过本地媒体代理播放，兼容性最好。' }
 };
 
+// 内置采集站：2026-11-13 实测关键词搜索、分页与播放地址可用。
+// 失效的接口不在此处删除，由片源健康度机制自动停用。
 const RESOURCE_SOURCES = [
   ...require('./studio-sources.cjs').catalog.sources,
-  {
-    key: 'dyttzy',
-    name: '电影天堂',
-    api: 'http://caiji.dyttzyapi.com/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  },
-  {
-    key: 'ffzy',
-    name: '非凡资源',
-    api: 'http://ffzy5.tv/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  },
-  {
-    key: 'zy360',
-    name: '360资源',
-    api: 'https://360zy.com/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  },
-  {
-    key: 'zuid',
-    name: '最大资源',
-    api: 'https://api.zuidapi.com/api.php/provide/vod',
-    modes: ['movie', 'full']
-  },
-  {
-    key: 'wujin',
-    name: '无尽资源',
-    api: 'https://api.wujinapi.me/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  },
-  {
-    key: 'bfzy',
-    name: '暴风资源',
-    api: 'https://bfzyapi.com/api.php/provide/vod',
-    modes: ['full']
-  },
-  {
-    key: 'lzi',
-    name: '量子资源',
-    api: 'https://cj.lziapi.com/api.php/provide/vod',
-    modes: ['full']
-  },
-  {
-    key: 'ruyi',
-    name: '如意资源',
-    api: 'https://cj.rycjapi.com/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  }
+  { key: 'dyttzy', name: '电影天堂', api: 'http://caiji.dyttzyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'ffzy', name: '非凡资源', api: 'https://cj.ffzyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'bfzy', name: '暴风资源', api: 'https://bfzyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'lzi', name: '量子资源', api: 'https://cj.lziapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'wujin', name: '无尽资源', api: 'https://api.wujinapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'zy360', name: '360资源', api: 'https://360zy5.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'zuid', name: '最大资源', api: 'https://api.zuidapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'ruyi', name: '如意资源', api: 'https://cj.rycjapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'bdzy', name: '百度云资源', api: 'https://api.apibdzy.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'xinlang', name: '新浪资源', api: 'https://api.xinlangapi.com/xinlangapi.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'jszy', name: '极速资源', api: 'https://jszyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'subo', name: '速播资源', api: 'https://subocaiji.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'ikun', name: 'ikun资源', api: 'https://ikunzyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] }
 ];
 
 let mainWindow;
@@ -906,6 +873,12 @@ function getMergedResourceSources(settings = readSettings()) {
   for (const source of getCustomResourceSources(settings)) {
     pushSource(source);
   }
+  // v0.3.0 订阅导入的接口：排在自定义源之后、内置源之前，保留所属订阅地址
+  const subscribed = Array.isArray(settings.subscriptionSources) ? settings.subscriptionSources : [];
+  subscribed.forEach((entry, index) => {
+    const source = normalizeResourceSourceEntry(entry, index, 'subscription');
+    if (source) pushSource({ ...source, subscription: String(entry.subscription || '') });
+  });
   for (const source of RESOURCE_SOURCES) {
     pushSource(normalizeResourceSourceEntry({
       ...source,
@@ -927,6 +900,7 @@ function publicResourceSource(source = {}) {
     modes: Array.isArray(source.modes) ? source.modes : [],
     enabled: source.enabled !== false,
     origin: source.origin || 'builtin',
+    subscription: source.subscription || '',
     note: source.note || '',
     provider: require('./studio-sources.cjs').resourceProvider(source),
     contentTypes: source.contentTypes || [],
@@ -939,10 +913,11 @@ function publicResourceSourcesState() {
   const settings = readSettings();
   const merged = getMergedResourceSources(settings).map(publicResourceSource);
   const custom = merged.filter((source) => source.origin === 'custom');
-  const builtin = merged.filter((source) => source.origin !== 'custom');
+  const builtin = merged.filter((source) => source.origin !== 'custom' && source.origin !== 'subscription');
   return {
     builtInCount: builtin.length,
     customCount: custom.length,
+    subscriptionCount: merged.filter((source) => source.origin === 'subscription').length,
     sourceCount: merged.length,
     sources: merged
   };
@@ -1320,7 +1295,7 @@ function parseMaybeJson(text) {
   return JSON.parse(trimmed);
 }
 
-async function resourceFetchJson(source, params = {}) {
+async function resourceFetchJson(source, params = {}, options = {}) {
   const url = buildResourceUrl(source, params);
   const cacheKey = `${source.key}|${url.searchParams.toString()}`;
   const cachedPayload = getCachedResourcePayload(cacheKey);
@@ -1328,7 +1303,13 @@ async function resourceFetchJson(source, params = {}) {
 
   await applyProxySetting().catch(() => {});
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), RESOURCE_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs) || RESOURCE_TIMEOUT_MS);
+  // 外部中断（例如聚合搜索的整源死线）同步取消本次请求
+  const onExternalAbort = () => controller.abort();
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener('abort', onExternalAbort, { once: true });
+  }
   try {
     const response = await session.defaultSession.fetch(url.toString(), {
       signal: controller.signal,
@@ -1354,6 +1335,7 @@ async function resourceFetchJson(source, params = {}) {
     return payload;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener?.('abort', onExternalAbort);
   }
 }
 
@@ -2290,6 +2272,8 @@ app.whenReady().then(() => {
   if (studioBridge) studioBridge.start(mainWindow).catch(() => { console.error('影音工作室桥接启动失败，请检查端口和数据目录。'); app.quit(); });
   initNetworkAcceleration();
   applyProxySetting({ force: true }).catch(() => {});
+  // v0.3.0 启动后静默刷新到期的片源订阅，避开启动高峰
+  setTimeout(() => { subscriptionService.autoSync().catch(() => {}); }, 8000);
 
   // v3.4.0 投屏（纯增量）：Web Bluetooth 设备选择回调只用于回捞"实时发现的设备名"给投屏面板，
   // 一律回调空字符串，绝不主动连接任何设备。
@@ -2776,6 +2760,57 @@ ipcMain.handle('image:relay', async (_event, payload = {}) => {
 ipcMain.handle('resources:testWebsite', async (_event, url) => {
   await applyProxySetting().catch(() => {});
   return require('./studio-sources.cjs').testWebsite((input, options) => session.defaultSession.fetch(input, options), url);
+});
+
+// 片源订阅（subscriptions:*）与导出（sources:export）
+const subscriptionService = require('./vod-subscriptions.cjs').createSubscriptionService({
+  ipcMain,
+  fetchText: async (url) => {
+    await applyProxySetting().catch(() => {});
+    return fetchRemoteResourceSources(url);
+  },
+  readSettings,
+  writeSettings,
+  touchConfig: touchResourceConfig,
+  onSourcesChanged: () => resourceResponseCache.clear(),
+  listExportSources: () => getMergedResourceSources().filter((source) => source.enabled !== false)
+});
+
+// 直播 IPTV（live:*）：经应用代理设置请求，超时后中断
+async function liveFetchResponse(url, options = {}) {
+  await applyProxySetting().catch(() => {});
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Number(options.timeoutMs) || 15000);
+  timer.unref?.();
+  return session.defaultSession.fetch(String(url), {
+    signal: controller.signal,
+    headers: {
+      accept: '*/*',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+      ...(options.headers || {})
+    }
+  });
+}
+const liveService = require('./live-service.cjs').createLiveService({
+  ipcMain,
+  readSettings,
+  writeSettings,
+  fetchResponse: liveFetchResponse,
+  fetchBuffer: async (url, options = {}) => {
+    const response = await liveFetchResponse(url, options);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return Buffer.from(await response.arrayBuffer());
+  }
+});
+
+// 采集站聚合搜索（vod:*）与片源健康度（health:*）
+const vodService = require('./vod-service.cjs').createVodService({
+  ipcMain,
+  fetchJson: resourceFetchJson,
+  listSources: () => getMergedResourceSources(),
+  readSettings,
+  writeSettings,
+  playbackMeta: playbackMetaForUrl
 });
 
 ipcMain.handle('resources:testSource', async (_event, payload = {}) => {

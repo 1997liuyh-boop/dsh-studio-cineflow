@@ -11,9 +11,14 @@
 ## Features
 
 - Browse recommendations and categorized libraries for films, series, and anime.
-- Search by title, filter by region, type, date range, popularity, rating, and release order.
-- Import, deduplicate, test, enable, and remove playback sources while retaining source metadata.
-- Track playback history, resume from a saved position, and choose subtitles and quality when supported.
+- Search every collector source in parallel (up to 5 pages each), merge same-title results across sources into one card, list each part or season of a series separately, and fold commentary and trailer entries.
+- Open a title to see every source ranked by measured response time, with all lines and episodes; with TMDB configured, add ratings, overviews, and high-resolution posters.
+- Filter the TMDB library by region, type, date range, popularity, rating, and release order.
+- Play with ArtPlayer: previous and next episode, autoplay next, intro and outro marks with skipping, and switching sources mid-playback while keeping the episode and position. A failed source opens the source switcher automatically.
+- Track source health: sources that fail repeatedly during search are disabled for 30 minutes, then 24 hours, then indefinitely, and can be restored individually or all at once.
+- Subscribe to LibreTV source list JSON or TVBox configurations with periodic background refresh, export current sources, and still import, test, and remove custom sources.
+- Watch live IPTV: M3U sources, groups and search, favorites and recent channels, XMLTV guides, and reachability sorting, with channel switching in the in-app player.
+- Track playback history and resume collector sources directly from the saved position.
 - Cast playback to compatible devices on the same local network.
 - Show service, source, and playback failures from real state instead of replacing them with sample data.
 - Keep embedded layouts usable in narrow windows, with internal scrolling for lists, details, and settings.
@@ -24,10 +29,10 @@ This repository declares a DSH bundle at `package.json` → `dsh.bundle.patch`. 
 
 ```text
 github:1997liuyh-boop/dsh-studio-library#v0.1.3
-github:1997liuyh-boop/dsh-studio-cineflow#v0.2.11
+github:1997liuyh-boop/dsh-studio-cineflow#v0.3.0
 ```
 
-Confirm that the plugin manager lists `dsh-studio-cineflow` version `0.2.2`, then open CineFlow. The package requires compatible `dsh-worktable` `^0.6.0` and `dsh-studio-projects` `^0.5.0`, supplied by the control package.
+Confirm that the plugin manager lists `dsh-studio-cineflow` version `0.3.0`, then open CineFlow. The package requires compatible `dsh-worktable` `^0.6.0` and `dsh-studio-projects` `^0.5.0`, supplied by the control package.
 
 Windows development and service checks use Node.js 22 and npm:
 
@@ -45,4 +50,4 @@ TMDB credentials, source credentials, external media services, and casting devic
 
 ## Sources and license
 
-The application source is [incldue/CineFlow](https://github.com/incldue/CineFlow), commit `b32fd8a6ba43dcde4494b7487ebf5d949f65a306`, version `3.4.4`, MIT. Adaptations and the lock record are listed in [UPSTREAM.json](UPSTREAM.json), with third-party notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This DSH adaptation is MIT licensed; see [LICENSE](LICENSE).
+The application source is [incldue/CineFlow](https://github.com/incldue/CineFlow), commit `b32fd8a6ba43dcde4494b7487ebf5d949f65a306`, version `3.4.4`, MIT. Aggregated search, source health, subscriptions, and live IPTV follow the design and public data formats of [LibreTV-Next](https://github.com/bestZwei/LibreTV-Next); the code is an independent implementation and contains no AGPL-3.0 code from that project. Adaptations and the lock record are listed in [UPSTREAM.json](UPSTREAM.json), with third-party notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This DSH adaptation is MIT licensed; see [LICENSE](LICENSE).

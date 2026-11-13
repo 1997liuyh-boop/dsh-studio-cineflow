@@ -16,7 +16,28 @@
     "app/src/update-bubble.js",
     "app/index.html",
     "sources.json",
-    "patches/cineflow-studio.patch"
+    "patches/cineflow-studio.patch",
+    "app/electron/main.cjs",
+    "app/electron/preload.cjs",
+    "app/electron/ad-filter.cjs",
+    "app/electron/vod-core.mjs",
+    "app/electron/vod-service.cjs",
+    "app/electron/vod-health.cjs",
+    "app/electron/vod-subscriptions.cjs",
+    "app/electron/live-core.cjs",
+    "app/electron/live-service.cjs",
+    "app/src/vod-search.js",
+    "app/src/vod-player.js",
+    "app/src/skip-marks.js",
+    "app/src/live-page.js",
+    "app/src/source-manager.js",
+    "app/src/history-store.js",
+    "app/src/history-resume.js",
+    "app/src/history-page.js",
+    "app/src/ad-filter.js",
+    "app/src/styles.css",
+    "app/package.json",
+    "app/tests"
   ],
-  "note": "main.cjs 添加嵌入启动和首次片源导入；styles.css 修复 transition 的非法 important 位置"
+  "note": "main.cjs 添加嵌入启动和首次片源导入；styles.css 修复 transition 的非法 important 位置；v0.3.0 顶部搜索改为采集站多页聚合搜索（vod-*），播放器换成 ArtPlayer 并新增换源、片头片尾跳过与自动连播，新增片源健康度、片源订阅与直播 IPTV（live-*），设计参考 LibreTV-Next、代码独立实现"
 }

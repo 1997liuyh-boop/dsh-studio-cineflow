@@ -102,11 +102,17 @@ export function createHistoryPage({ state, escapeHtml = (value) => String(value 
 
   // 复用基线卡片事件委托：行内挂一个不可见的 .movie-card，点击它 = 打开介绍页
   function delegateMarkup(item) {
+    // 采集站记录没有 TMDB 编号，不挂隐藏卡片，详情改由作品面板打开
+    if (item.mediaType === 'vod') return '';
     const key = register(item);
     return `<article class="movie-card cf3-inert" tabindex="-1" data-movie-id="${escapeHtml(String(item.id))}" data-media-type="${escapeHtml(key.split(':')[0])}" data-content-key="${escapeHtml(key)}"></article>`;
   }
 
-  function openByKey(row) {
+  function openByKey(row, item) {
+    if (item?.mediaType === 'vod') {
+      window.__cineflowVod?.openByTitle?.(item.title, item.year, item.vod?.sourceKey);
+      return;
+    }
     row.querySelector('.cf3-inert')?.click();
   }
 
@@ -160,14 +166,14 @@ export function createHistoryPage({ state, escapeHtml = (value) => String(value 
   function buildRow(item) {
     const row = document.createElement('div');
     row.className = 'cf3-row';
-    const thumb = thumbOf(item.posterPath);
+    const thumb = item.poster || thumbOf(item.posterPath);
     const percent = item.duration ? Math.min(100, Math.round((item.progress / item.duration) * 100)) : 0;
     row.innerHTML = `
       ${delegateMarkup(item)}
-      <div class="cf3-thumb">${thumb ? `<img src="${thumb}" alt="" decoding="async" />` : '<span>·</span>'}</div>
+      <div class="cf3-thumb">${thumb ? `<img src="${escapeHtml(thumb)}" alt="" decoding="async" referrerpolicy="no-referrer" />` : '<span>·</span>'}</div>
       <div class="cf3-row-info">
         <strong>${escapeHtml(item.title)}</strong>
-        <p>${escapeHtml([item.mediaType === 'tv' ? item.episode : '', remainingText(item)].filter(Boolean).join(' · '))}</p>
+        <p>${escapeHtml([item.mediaType === 'tv' || item.mediaType === 'vod' ? item.episode : '', remainingText(item)].filter(Boolean).join(' · '))}</p>
         <div class="cf3-progress slim"><i style="width:${percent}%"></i></div>
       </div>
       <div class="cf3-row-actions">
@@ -180,11 +186,11 @@ export function createHistoryPage({ state, escapeHtml = (value) => String(value 
     bindResume(row.querySelector('.cf3-resume-btn'), item, row);
     row.querySelector('.cf3-detail-btn').addEventListener('click', (event) => {
       event.stopPropagation();
-      openByKey(row);
+      openByKey(row, item);
     });
     row.addEventListener('click', (event) => {
       if (event.target.closest('.cf3-del, .cf3-row-actions')) return;
-      openByKey(row);
+      openByKey(row, item);
     });
     row.querySelector('.cf3-del').addEventListener('click', (event) => {
       event.stopPropagation();

@@ -11,9 +11,14 @@
 ## 功能与特性
 
 - 浏览电影、剧集和动漫的推荐与分类片库。
-- 按片名、地区、类型、日期范围、热度、评分和上映顺序搜索筛选。
-- 导入、去重、测速、启用和删除片源，同时保留线路元数据。
-- 保存播放历史、断点续播，并在片源支持时选择字幕和清晰度。
+- 顶部搜索并发查询全部采集站（每站最多 5 页），同名作品跨来源合并为一张卡片，剧集的各篇章 / 季单独列出，解说与预告折叠显示。
+- 作品面板对每个来源测速并排序，列出全部线路与剧集；配置 TMDB 后补充评分、简介与高清海报。
+- 按地区、类型、日期范围、热度、评分和上映顺序筛选 TMDB 片库。
+- ArtPlayer 播放器：上一集 / 下一集、自动连播、片头片尾标记与跳过、播放中换源（保留集数与进度），播放失败时自动弹出换源。
+- 片源健康度：搜索时连续失败的片源按 30 分钟、24 小时、长期阶梯自动停用，可单个或全部恢复。
+- 片源订阅：支持 LibreTV 源列表 JSON 与 TVBox 配置，定期静默更新；可导出当前片源；仍可导入、测速和删除自定义片源。
+- 直播 IPTV：M3U 直播源、分组与搜索、收藏与最近观看、XMLTV 节目单、测活排序，频道在应用内播放器中切换。
+- 保存播放历史，采集站来源直接断点续播。
 - 将播放投送到同一局域网内的兼容设备。
 - 依据真实状态显示服务、片源和播放错误，不用示例数据替代失败状态。
 - 窄窗口下保留可用布局，片单、详情和设置使用内部滚动。
@@ -24,10 +29,10 @@
 
 ```text
 github:1997liuyh-boop/dsh-studio-library#v0.1.3
-github:1997liuyh-boop/dsh-studio-cineflow#v0.2.11
+github:1997liuyh-boop/dsh-studio-cineflow#v0.3.0
 ```
 
-确认插件管理器显示 `dsh-studio-cineflow` 版本 `0.2.2`，然后打开 CineFlow。本插件要求兼容的 `dsh-worktable ^0.6.0` 和 `dsh-studio-projects ^0.5.0`，由控制包提供。
+确认插件管理器显示 `dsh-studio-cineflow` 版本 `0.3.0`，然后打开 CineFlow。本插件要求兼容的 `dsh-worktable ^0.6.0` 和 `dsh-studio-projects ^0.5.0`，由控制包提供。
 
 Windows 本地开发和服务检查需要 Node.js 22 与 npm：
 
@@ -45,4 +50,4 @@ TMDB 凭据、片源凭据、外部媒体服务和投屏设备由用户自行配
 
 ## 来源与许可
 
-应用源码来自 [incldue/CineFlow](https://github.com/incldue/CineFlow)，固定提交为 `b32fd8a6ba43dcde4494b7487ebf5d949f65a306`，版本 `3.4.4`，采用 MIT 许可。适配记录和锁定信息见 [UPSTREAM.json](UPSTREAM.json)，第三方声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本 DSH 适配代码采用 MIT 许可，详见 [LICENSE](LICENSE)。
+应用源码来自 [incldue/CineFlow](https://github.com/incldue/CineFlow)，固定提交为 `b32fd8a6ba43dcde4494b7487ebf5d949f65a306`，版本 `3.4.4`，采用 MIT 许可。聚合搜索、片源健康度、订阅与直播功能参考 [LibreTV-Next](https://github.com/bestZwei/LibreTV-Next) 的设计与公开数据格式，代码为独立实现，未包含其 AGPL-3.0 代码。适配记录和锁定信息见 [UPSTREAM.json](UPSTREAM.json)，第三方声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本 DSH 适配代码采用 MIT 许可，详见 [LICENSE](LICENSE)。
