@@ -29,10 +29,10 @@ This repository declares a DSH bundle at `package.json` → `dsh.bundle.patch`. 
 
 ```text
 github:1997liuyh-boop/dsh-studio-library#v0.1.3
-github:1997liuyh-boop/dsh-studio-cineflow#v0.3.0
+github:1997liuyh-boop/dsh-studio-cineflow#v0.3.1
 ```
 
-Confirm that the plugin manager lists `dsh-studio-cineflow` version `0.3.0`, then open CineFlow. The package requires compatible `dsh-worktable` `^0.6.0` and `dsh-studio-projects` `^0.5.0`, supplied by the control package.
+Confirm that the plugin manager lists `dsh-studio-cineflow` version `0.3.1`, then open CineFlow. The package requires compatible `dsh-worktable` `^0.6.0` and `dsh-studio-projects` `^0.5.0`, supplied by the control package.
 
 Windows development and service checks use Node.js 22 and npm:
 
