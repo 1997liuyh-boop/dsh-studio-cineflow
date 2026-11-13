@@ -20,9 +20,31 @@ function hasDiscontinuity(tagLines) {
   return tagLines.some((tag) => /^#EXT-X-DISCONTINUITY\b/i.test(tag.trim()));
 }
 
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+// 分片地址的目录（去掉文件名与查询串），用于判断插入的分组是否来自另一套地址
+function segmentDirectory(uri) {
+  const clean = String(uri || '').trim().split(/[?#]/)[0];
+  const index = clean.lastIndexOf('/');
+  return index >= 0 ? clean.slice(0, index) : '';
+}
+
+const AD_URI_RE = /adjump|advert|guanggao|\/ads?\//i;
+
+// v0.3.0 增强：按 DISCONTINUITY 分组后识别插入的广告组。
+// - 只处理点播清单（有 #EXT-X-ENDLIST），直播清单不做分组判定，避免误删直播内容；
+// - 分片地址全部带广告特征的分组直接删除；
+// - 编码器分段（4 组以上且各组时长接近）时只删除明显短于中位数、且地址目录不同的分组；
+// - 其它情况沿用原规则：时长不超过 120 秒、不超过主分组三分之一、不超过 12 个分片。
 function groupAdBurstFilter(parsed) {
   const { head, segments, tail } = parsed;
   if (segments.length < 2) return { head, segments, tail, dropped: 0 };
+  if (!parsed.tail.some((line) => /^#EXT-X-ENDLIST/i.test(line.trim()))) return { head, segments, tail, dropped: 0 };
 
   const groups = [];
   let current = null;
@@ -36,19 +58,35 @@ function groupAdBurstFilter(parsed) {
   }
   if (groups.length < 2) return { head, segments, tail, dropped: 0 };
 
-  let main = groups[0];
-  for (const group of groups) {
+  // 主分组从「分片地址不带广告特征」的分组里选，避免很长的广告组被当成正片
+  for (const group of groups) group.adUris = group.segments.every((segment) => AD_URI_RE.test(segment.uri));
+  const candidates = groups.some((group) => !group.adUris) ? groups.filter((group) => !group.adUris) : groups;
+  let main = candidates[0];
+  for (const group of candidates) {
     if (group.duration > main.duration) main = group;
   }
   if (main.duration <= 0) return { head, segments, tail, dropped: 0 };
 
+  const mainDirectory = segmentDirectory(main.segments[0]?.uri);
+  const others = groups.filter((group) => group !== main);
+  const chunked = groups.length >= 4 && median(others.map((group) => group.duration)) >= 60;
+  const typical = median(others.map((group) => group.duration));
+
   const kept = [];
   let dropped = 0;
   for (const group of groups) {
-    const isAdGroup = group !== main
-      && group.duration <= 120
-      && group.duration * 3 <= main.duration
-      && group.segments.length <= 12;
+    let isAdGroup = false;
+    if (group !== main) {
+      const adUris = group.adUris;
+      const foreign = Boolean(mainDirectory) && group.segments.every((segment) => segmentDirectory(segment.uri) !== mainDirectory);
+      if (adUris) {
+        isAdGroup = true;
+      } else if (chunked) {
+        isAdGroup = foreign && group.duration <= 60 && group.duration < typical * 0.25;
+      } else {
+        isAdGroup = group.duration <= 120 && group.duration * 3 <= main.duration && group.segments.length <= 12;
+      }
+    }
     if (isAdGroup) {
       dropped += group.segments.length;
       continue;

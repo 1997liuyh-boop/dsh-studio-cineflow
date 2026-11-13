@@ -2,9 +2,12 @@
 import { createAdFilteringLoader } from './ad-filter.js';
 import { applyIntentExtras } from './intent-extras.js';
 import { cleanSearchQuery } from './dual-search.js';
-import { createVodSearchEngine, createVodWorkView, renderVodCard, rankGroupsForTitle, exactGroups } from './vod-search.js'; // v0.3.0 采集站优先的聚合搜索
+import { createVodSearchEngine, createVodWorkView, renderVodCard, rankGroupsForTitle, exactGroups } from './vod-search.js';
+import { normalizeTitle as normalizeVodTitle } from '../electron/vod-core.mjs'; // v0.3.0 采集站优先的聚合搜索
 import { initIncrementalCast } from './incremental-cast.js'; // v3.4.0 纯增量：投屏装配入口
 import { initIncrementalPages } from './incremental-pages.js'; // v3.4.0 纯增量：分类片库 / 播放历史 / 三页切换装配入口
+// v0.3.0 ArtPlayer 播放器外壳：模块加载时即接管 #resourcePlayer，必须在读取 DOM 之前导入
+import { initVodPlayer } from './vod-player.js';
 
 const api = window.cineflow;
 // v0.3.0 采集站聚合搜索接口；缺失时（旧宿主）回退到原 TMDB 搜索与单条片源匹配
@@ -2692,6 +2695,8 @@ function setPlayerLoading(isLoading, title = '正在加载', subtitle = '高清�
 }
 
 function setPlayerError(message) {
+  // 通知播放器模块：所有回退都失败了（有其它来源时会自动弹出换源面板）
+  window.dispatchEvent(new CustomEvent('cineflow:player-error', { detail: { message: message || '' } }));
   dom.playerStage?.classList.add('has-error');
   dom.playerError?.classList.remove('is-hidden');
   const span = dom.playerError?.querySelector('span');
@@ -3126,7 +3131,8 @@ function playPlayerEpisode(index) {
     playlistId: state.player.playlistId,
     playlist,
     episodeIndex,
-    playbackMode: state.player.playbackMode
+    playbackMode: state.player.playbackMode,
+    vod: state.player.vod
   });
 }
 
@@ -4318,6 +4324,9 @@ initIncrementalCast({ api, state, escapeHtml });
 // v3.4.0 纯增量：分类片库 / 播放历史 / 三页切换，异常自动跳过、基线首页不进 3D
 initIncrementalPages({ api, state, escapeHtml });
 
+// v0.3.0 ArtPlayer 播放器功能：上一集 / 下一集、自动连播、片头片尾跳过、播放中换源
+initVodPlayer({ state, escapeHtml, toast, playEpisode: playPlayerEpisode });
+
 // v3.4.3 第三十一轮纯增量：只是把已有的播放器入口多开一个门（原有 2544 / 3129 两处调用一行未改），
 // 供"无 TMDB 凭证"时豆瓣摘要卡下面那条线路使用 —— 播放器、resolve、代理、广告过滤全是基线那一套。
 window.__cineflowOpenResourcePlayer = (payload) => openResourcePlayer(payload);
@@ -4422,7 +4431,7 @@ function openDetailShell(html) {
 }
 
 /** 作品面板：海报与简介 + 全部来源（并发测速）+ 线路选集。 */
-function openVodWork(group) {
+function openVodWork(group, { preferSourceKey = '' } = {}) {
   vodState.work?.destroy();
   state.activeResourceSearchId += 1;
   state.lastDetailMovieId = `vod:${group.key}`;
@@ -4448,7 +4457,7 @@ function openVodWork(group) {
     <section class="detail-resources vod-resources"><div class="vod-work-body"></div></section>
   `);
   const body = dom.detailContent.querySelector('.vod-work-body');
-  vodState.work = vodWorkView().renderWork(body, group);
+  vodState.work = vodWorkView().renderWork(body, group, { preferSourceKey });
   enrichVodWithTmdb(group);
 }
 
@@ -4534,12 +4543,13 @@ function playVodEpisode({ group, item, detail, lineIndex = 0, episodeIndex = 0, 
       pic: group?.pic || detail.meta?.pic || '',
       lineIndex,
       lineName: line.name,
-      alternatives: alternatives.map((entry) => ({
+      // 作品面板传入 { item, detail }，播放器换源传入已整理好的 { sourceKey, vodId, sourceName, ms }
+      alternatives: alternatives.map((entry) => (entry.item ? {
         sourceKey: entry.item.sourceKey,
         vodId: entry.item.vodId,
         sourceName: entry.item.sourceName,
         ms: entry.detail?.ms ?? null
-      }))
+      } : entry))
     }
   });
 }
@@ -4611,5 +4621,20 @@ window.__cineflowVod = {
   openWork: openVodWork,
   play: playVodEpisode,
   detail: (sourceKey, vodId) => vodApi?.detail(sourceKey, vodId),
-  search: (query, options) => vodEngine?.run(query, options)
+  search: (query, options) => vodEngine?.run(query, options),
+  // 播放历史「详情」：按片名 + 年份重新搜索并打开对应作品（优先上次的来源）
+  openByTitle: async (title, year = '', preferSourceKey = '') => {
+    if (!vodEngine || !title) return false;
+    toast(`正在查找「${title}」的来源…`);
+    const result = await vodEngine.run(title).catch(() => null);
+    const target = normalizeVodTitle(title);
+    const groups = (result?.groups || []).filter((group) => normalizeVodTitle(group.name) === target);
+    const group = groups.find((entry) => !year || !entry.year || entry.year === String(year)) || groups[0];
+    if (!group) {
+      toast('采集站暂时没有找到这部作品');
+      return false;
+    }
+    openVodWork(group, { preferSourceKey });
+    return true;
+  }
 };

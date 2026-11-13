@@ -98,6 +98,7 @@
     }
   },
   "dependencies": {
+    "artplayer": "^5.4.0",
     "dashjs": "^5.2.0",
     "fast-xml-parser": "^5.11.2",
     "flv.js": "^1.6.2",

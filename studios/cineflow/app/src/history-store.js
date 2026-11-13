@@ -2,6 +2,8 @@
 // 不改播放链路：只用 MutationObserver 看 #playerModal 的开合 class、监听既有 <video> 的
 // timeupdate / ended，把"看到哪一秒"记进 localStorage。任何异常都只让历史为空，不影响播放。
 
+import { normalizeTitle } from '../electron/vod-core.mjs';
+
 export const HISTORY_KEY = 'cineflow:history:v3';
 const MAX_ITEMS = 60;
 const FLUSH_MS = 5000;
@@ -177,8 +179,52 @@ function playerContext() {
   };
 }
 
+// v0.3.0：采集站来源的播放记录，按「片名 + 年份」归并，保存来源与线路，续播时直接取详情播放
+function vodSessionKey(vod) {
+  return `vod:${normalizeTitle(vod?.title)}|${vod?.year || ''}`;
+}
+
+function vodContext(vod) {
+  return {
+    sourceKey: String(vod.sourceKey || ''),
+    vodId: String(vod.vodId || ''),
+    sourceName: String(vod.sourceName || ''),
+    lineName: String(vod.lineName || ''),
+    lineIndex: Number(vod.lineIndex) || 0
+  };
+}
+
+// 采集站剧集直接用播放列表里的集名，不读按钮文字（按钮里还带着格式标签）
+function vodEpisodeLabel() {
+  return String(deps?.state?.player?.label || episodeLabel() || '').trim().slice(0, 40);
+}
+
+function startVodSession(vod) {
+  session = {
+    key: vodSessionKey(vod),
+    id: null,
+    mediaType: 'vod',
+    title: String(vod.title || document.querySelector('#playerTitle')?.textContent || '').trim(),
+    poster: String(vod.pic || ''),
+    posterPath: '',
+    year: String(vod.year || ''),
+    episode: vodEpisodeLabel(),
+    progress: 0,
+    duration: 0,
+    updatedAt: Date.now(),
+    vod: vodContext(vod),
+    ...playerContext(),
+  };
+}
+
 function startSession() {
   const state = deps?.state;
+  if (state?.player?.vod) {
+    startVodSession(state.player.vod);
+    return;
+  }
+  // 作品面板（采集站）打开时没有 TMDB 编号，缺少来源信息的播放不记录，避免产生无法续播的条目
+  if (state?.lastDetailMediaType === 'vod') return;
   const id = state?.lastDetailMovieId;
   if (!id) return;
   const mediaType = state.lastDetailMediaType || 'movie';
@@ -199,8 +245,15 @@ function startSession() {
 }
 
 function commitProgress(progress, duration) {
+  const vod = deps?.state?.player?.vod;
+  // 同一次打开播放器里换了作品（例如续播另一部），重新开一条记录；换源只更新来源信息
+  if (vod && (!session || session.key !== vodSessionKey(vod))) startVodSession(vod);
   if (!session) startSession();
   if (!session) return;
+  if (vod && session.mediaType === 'vod') {
+    session.vod = vodContext(vod);
+    session.episode = vodEpisodeLabel() || session.episode;
+  }
   if (!Number.isFinite(progress) || progress <= 0) return;
   session.progress = Math.round(progress);
   session.duration = Number.isFinite(duration) && duration > 0 ? Math.round(duration) : session.duration;

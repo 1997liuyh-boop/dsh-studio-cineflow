@@ -12025,3 +12025,81 @@ body.island-docked-mode .cf3-stage {
 .vod-match-body { margin-top: 14px; }
 .vod-episodes .resource-episode::before { display: none; }
 .vod-episodes .resource-episode-label { width: 100%; text-align: center; }
+
+/* ===== v0.3.0 ArtPlayer 播放器外壳 ===== */
+.cf-art-holder { position: absolute; inset: 0; z-index: 0; }
+.cf-art-holder .art-video-player { width: 100% !important; height: 100% !important; font-family: inherit; }
+/* 加载动画沿用应用自己的 #playerLoader */
+.cf-art-holder .art-loading { display: none !important; }
+.player-loader,
+.player-error { z-index: 4; }
+.cf-art-btn { padding: 0 6px; font-size: 13px; white-space: nowrap; }
+
+.cf-skip-undo {
+  position: absolute;
+  left: 18px;
+  bottom: 64px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(8, 10, 14, 0.78);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  backdrop-filter: blur(10px);
+}
+.cf-skip-undo button {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(127, 215, 198, 0.2);
+  color: #bff3e8;
+  cursor: pointer;
+}
+.cf-skip-undo.is-hidden,
+.cf-source-panel.is-hidden { display: none; }
+
+.cf-source-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 60px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  width: min(300px, 70%);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(8, 10, 14, 0.86);
+  color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+}
+.cf-source-panel header { display: flex; align-items: baseline; gap: 8px; padding: 14px 14px 8px; }
+.cf-source-panel header span { flex: 1; color: rgba(255, 255, 255, 0.55); font-size: 12px; }
+.cf-source-close { border: 0; background: transparent; color: rgba(255, 255, 255, 0.7); font-size: 20px; cursor: pointer; }
+.cf-source-message { margin: 0 14px 8px; color: #f5c37a; font-size: 12px; }
+.cf-source-rows { flex: 1; display: grid; align-content: start; gap: 6px; padding: 0 10px; overflow-y: auto; }
+.cf-source-row {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cf-source-row small { color: #7fd7c6; font-size: 11px; }
+.cf-source-row.is-slow small { color: #d8b874; }
+.cf-source-row.is-current { border-color: rgba(127, 215, 198, 0.5); cursor: default; }
+.cf-source-row.is-current small { color: rgba(255, 255, 255, 0.6); }
+.cf-source-row.is-failed { opacity: 0.45; cursor: not-allowed; }
+.cf-source-row.is-failed small { color: #ff9aa9; }
+.cf-source-row:hover:not(:disabled) { border-color: rgba(127, 215, 198, 0.35); }
+.cf-source-panel footer { padding: 10px; }
+.cf-source-panel footer button { width: 100%; }

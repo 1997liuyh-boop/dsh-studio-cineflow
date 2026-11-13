@@ -129,18 +129,62 @@ async function seekTo(target, isCancelled) {
 export function createHistoryResume({ state } = {}) {
   let runId = 0;
 
+  // v0.3.0：采集站记录直接取上次来源的详情播放，不再模拟点击介绍页
+  async function resumeVod(item, cancelled) {
+    const bridge = window.__cineflowVod;
+    const vod = item.vod || {};
+    if (!bridge?.detail || !vod.sourceKey || !vod.vodId) return false;
+    let detail = null;
+    try {
+      detail = await bridge.detail(vod.sourceKey, vod.vodId);
+    } catch {
+      detail = null;
+    }
+    if (cancelled()) return false;
+    if (!detail?.ok) {
+      notify('上次的来源暂时不可用，已打开作品页，请换一个来源');
+      bridge.openByTitle?.(item.title, item.year);
+      return false;
+    }
+    const byName = detail.lines.findIndex((line) => line.name === vod.lineName);
+    const lineIndex = byName >= 0 ? byName : Math.min(Number(vod.lineIndex) || 0, detail.lines.length - 1);
+    const episodes = detail.lines[lineIndex].episodes;
+    const byLabel = item.label ? episodes.findIndex((episode) => episode.label === item.label) : -1;
+    const episodeIndex = byLabel >= 0 ? byLabel : Math.min(Number(item.episodeIndex) || 0, episodes.length - 1);
+    bridge.play({
+      group: { name: item.title, year: item.year, pic: item.poster },
+      item: { sourceKey: vod.sourceKey, vodId: vod.vodId, sourceName: vod.sourceName || item.sourceName },
+      detail,
+      lineIndex,
+      episodeIndex
+    });
+    if (!(await waitFor(playerOpen, PLAYER_WAIT_MS, cancelled))) return false;
+    const progress = Number(item.progress) || 0;
+    if (!progress) return true;
+    const ok = await seekTo(progress, cancelled);
+    if (!ok && state?.player?.open && !cancelled()) notify('已从头开始播放');
+    return ok;
+  }
+
   async function resume(item, trigger) {
-    if (!item || !trigger) return false;
+    if (!item) return false;
     const my = ++runId;
     const cancelled = () => my !== runId;
+    if (item.mediaType === 'vod') return resumeVod(item, cancelled);
+    if (!trigger) return false;
 
     trigger.click();
     if (!(await waitFor(detailOpen, DETAIL_WAIT_MS, cancelled))) {
       notify('没能打开介绍页');
       return false;
     }
-    const picked = await waitFor(() => pickPlayButton(item), RESOURCE_WAIT_MS, cancelled);
+    // 新版介绍页的片源改为采集站作品列表，旧记录无法定位到具体按钮时停在介绍页让用户选择
+    const picked = await waitFor(() => pickPlayButton(item) || (resourceList()?.querySelector('.vod-match-list') ? 'vod' : null), RESOURCE_WAIT_MS, cancelled);
     if (cancelled()) return false;
+    if (picked === 'vod') {
+      notify('已打开介绍页，请在「可用资源」中选择来源继续播放');
+      return false;
+    }
     if (!picked) {
       notify('没找到上次的播放源');
       return false;
