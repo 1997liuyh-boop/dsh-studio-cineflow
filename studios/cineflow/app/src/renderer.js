@@ -3132,7 +3132,8 @@ function playPlayerEpisode(index) {
     playlist,
     episodeIndex,
     playbackMode: state.player.playbackMode,
-    vod: state.player.vod
+    vod: state.player.vod,
+    live: state.player.live
   });
 }
 
@@ -3266,15 +3267,17 @@ async function startPlayerTransport(loadId, mediaKind, playbackUrl) {
         setPlayerStatus('FLV 解析中...');
         playerFlv = FlvEngine.createPlayer({
           type: 'flv',
-          isLive: false,
+          // 直播频道按直播流处理，点播保持原设置
+          isLive: Boolean(state.player.live),
           hasAudio: true,
           hasVideo: true,
           url: playbackUrl
         }, {
-          enableWorker: true,
-          enableStashBuffer: true,
+          // flv.js 的 Worker 在打包后无法加载内部模块（Class extends value undefined），改为主线程转封装
+          enableWorker: false,
+          enableStashBuffer: !state.player.live,
           stashInitialSize: 1024 * 320,
-          lazyLoad: true,
+          lazyLoad: !state.player.live,
           lazyLoadMaxDuration: 150,
           reuseRedirectedURL: true,
           autoCleanupSourceBuffer: true,
@@ -3401,7 +3404,9 @@ async function openResourcePlayer(payload = {}) {
     loadId,
     seeking: false,
     // 采集站来源信息（换源、续播、历史记录使用）；旧 TMDB 详情页入口为 null
-    vod: payload.vod || null
+    vod: payload.vod || null,
+    // 直播频道：不记录播放历史，播放列表即同组频道
+    live: Boolean(payload.live)
   };
 
   // Playback proxy preference: force the local media proxy so the main process
@@ -4615,6 +4620,9 @@ document.addEventListener('keydown', (event) => {
   event.preventDefault();
   openVodWork(group);
 });
+
+// 片源、订阅或健康度变化后，下一次搜索重新读取可用片源
+window.addEventListener('cineflow:resource-settings', () => vodEngine?.invalidate());
 
 // 供续播、播放器换源等模块直接打开采集站来源
 window.__cineflowVod = {

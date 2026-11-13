@@ -873,6 +873,12 @@ function getMergedResourceSources(settings = readSettings()) {
   for (const source of getCustomResourceSources(settings)) {
     pushSource(source);
   }
+  // v0.3.0 订阅导入的接口：排在自定义源之后、内置源之前，保留所属订阅地址
+  const subscribed = Array.isArray(settings.subscriptionSources) ? settings.subscriptionSources : [];
+  subscribed.forEach((entry, index) => {
+    const source = normalizeResourceSourceEntry(entry, index, 'subscription');
+    if (source) pushSource({ ...source, subscription: String(entry.subscription || '') });
+  });
   for (const source of RESOURCE_SOURCES) {
     pushSource(normalizeResourceSourceEntry({
       ...source,
@@ -894,6 +900,7 @@ function publicResourceSource(source = {}) {
     modes: Array.isArray(source.modes) ? source.modes : [],
     enabled: source.enabled !== false,
     origin: source.origin || 'builtin',
+    subscription: source.subscription || '',
     note: source.note || '',
     provider: require('./studio-sources.cjs').resourceProvider(source),
     contentTypes: source.contentTypes || [],
@@ -906,10 +913,11 @@ function publicResourceSourcesState() {
   const settings = readSettings();
   const merged = getMergedResourceSources(settings).map(publicResourceSource);
   const custom = merged.filter((source) => source.origin === 'custom');
-  const builtin = merged.filter((source) => source.origin !== 'custom');
+  const builtin = merged.filter((source) => source.origin !== 'custom' && source.origin !== 'subscription');
   return {
     builtInCount: builtin.length,
     customCount: custom.length,
+    subscriptionCount: merged.filter((source) => source.origin === 'subscription').length,
     sourceCount: merged.length,
     sources: merged
   };
@@ -2264,6 +2272,8 @@ app.whenReady().then(() => {
   if (studioBridge) studioBridge.start(mainWindow).catch(() => { console.error('影音工作室桥接启动失败，请检查端口和数据目录。'); app.quit(); });
   initNetworkAcceleration();
   applyProxySetting({ force: true }).catch(() => {});
+  // v0.3.0 启动后静默刷新到期的片源订阅，避开启动高峰
+  setTimeout(() => { subscriptionService.autoSync().catch(() => {}); }, 8000);
 
   // v3.4.0 投屏（纯增量）：Web Bluetooth 设备选择回调只用于回捞"实时发现的设备名"给投屏面板，
   // 一律回调空字符串，绝不主动连接任何设备。
@@ -2750,6 +2760,47 @@ ipcMain.handle('image:relay', async (_event, payload = {}) => {
 ipcMain.handle('resources:testWebsite', async (_event, url) => {
   await applyProxySetting().catch(() => {});
   return require('./studio-sources.cjs').testWebsite((input, options) => session.defaultSession.fetch(input, options), url);
+});
+
+// 片源订阅（subscriptions:*）与导出（sources:export）
+const subscriptionService = require('./vod-subscriptions.cjs').createSubscriptionService({
+  ipcMain,
+  fetchText: async (url) => {
+    await applyProxySetting().catch(() => {});
+    return fetchRemoteResourceSources(url);
+  },
+  readSettings,
+  writeSettings,
+  touchConfig: touchResourceConfig,
+  onSourcesChanged: () => resourceResponseCache.clear(),
+  listExportSources: () => getMergedResourceSources().filter((source) => source.enabled !== false)
+});
+
+// 直播 IPTV（live:*）：经应用代理设置请求，超时后中断
+async function liveFetchResponse(url, options = {}) {
+  await applyProxySetting().catch(() => {});
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Number(options.timeoutMs) || 15000);
+  timer.unref?.();
+  return session.defaultSession.fetch(String(url), {
+    signal: controller.signal,
+    headers: {
+      accept: '*/*',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+      ...(options.headers || {})
+    }
+  });
+}
+const liveService = require('./live-service.cjs').createLiveService({
+  ipcMain,
+  readSettings,
+  writeSettings,
+  fetchResponse: liveFetchResponse,
+  fetchBuffer: async (url, options = {}) => {
+    const response = await liveFetchResponse(url, options);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return Buffer.from(await response.arrayBuffer());
+  }
 });
 
 // 采集站聚合搜索（vod:*）与片源健康度（health:*）

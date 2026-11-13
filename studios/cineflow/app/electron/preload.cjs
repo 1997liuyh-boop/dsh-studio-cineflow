@@ -119,5 +119,21 @@ contextBridge.exposeInMainWorld('cineflowVod', {
   search: (wd, sourceKeys) => ipcRenderer.invoke('vod:search', wd, Array.isArray(sourceKeys) ? sourceKeys : []),
   detail: (sourceKey, vodId) => ipcRenderer.invoke('vod:detail', sourceKey, vodId),
   healthList: () => ipcRenderer.invoke('health:list'),
-  healthReset: (key) => ipcRenderer.invoke('health:reset', key || '')
+  healthReset: (key) => ipcRenderer.invoke('health:reset', key || ''),
+  // 片源订阅与导出
+  subscriptions: () => ipcRenderer.invoke('subscriptions:list'),
+  addSubscription: (url, options) => ipcRenderer.invoke('subscriptions:add', url, options || {}),
+  removeSubscription: (url) => ipcRenderer.invoke('subscriptions:remove', url),
+  updateSubscription: (url, patch) => ipcRenderer.invoke('subscriptions:update', url, patch || {}),
+  syncSubscriptions: (url) => ipcRenderer.invoke('subscriptions:sync', url || ''),
+  exportSources: () => ipcRenderer.invoke('sources:export')
+});
+
+// v0.3.0 直播 IPTV：直播源、M3U 播放列表、节目单与测活
+contextBridge.exposeInMainWorld('cineflowLive', {
+  sources: () => ipcRenderer.invoke('live:sources'),
+  saveSources: (list) => ipcRenderer.invoke('live:saveSources', Array.isArray(list) ? list : []),
+  playlist: (url, options) => ipcRenderer.invoke('live:playlist', url, options || {}),
+  epg: (url, channels) => ipcRenderer.invoke('live:epg', url, Array.isArray(channels) ? channels : []),
+  probe: (urls) => ipcRenderer.invoke('live:probe', Array.isArray(urls) ? urls : [])
 });

@@ -219,6 +219,8 @@ function startVodSession(vod) {
 
 function startSession() {
   const state = deps?.state;
+  // 直播频道不记录播放历史
+  if (state?.player?.live) return;
   if (state?.player?.vod) {
     startVodSession(state.player.vod);
     return;
@@ -245,6 +247,7 @@ function startSession() {
 }
 
 function commitProgress(progress, duration) {
+  if (deps?.state?.player?.live) return;
   const vod = deps?.state?.player?.vod;
   // 同一次打开播放器里换了作品（例如续播另一部），重新开一条记录；换源只更新来源信息
   if (vod && (!session || session.key !== vodSessionKey(vod))) startVodSession(vod);

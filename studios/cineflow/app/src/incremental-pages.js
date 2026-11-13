@@ -11,6 +11,7 @@
 import { createPageTransition } from './page-transition.js';
 import { createLibraryPage } from './library-page.js';
 import { createHistoryPage } from './history-page.js';
+import { createLivePage } from './live-page.js'; // v0.3.0 直播 IPTV 页
 import { createHistoryResume } from './history-resume.js';
 import { initHistoryStore } from './history-store.js';
 import { initIncrementalSettings } from './incremental-settings.js';
@@ -45,11 +46,12 @@ function mountPages(deps) {
 
   const library = createLibraryPage({ api, state, escapeHtml });
   const history = createHistoryPage({ state, escapeHtml, resume: createHistoryResume({ state }) });
+  const livePage = createLivePage({ escapeHtml });
 
   const navigation = document.createElement('nav');
   navigation.className = 'cf3-navigation';
   navigation.setAttribute('aria-label', '影音工作室页面');
-  const pageNames = ['推荐', '分类片库', '播放历史'];
+  const pageNames = ['推荐', '分类片库', '播放历史', '直播'];
   const pageButtons = pageNames.map((name, index) => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -89,6 +91,14 @@ function mountPages(deps) {
         activate: () => history.activate(),
         prepare: () => history.activate(),
         settle: () => history.settle?.(),
+      },
+      {
+        id: 'live',
+        el: livePage.el,
+        // 首次进入才读取直播源与播放列表，之后切回来只刷新源列表
+        activate: () => livePage.activate(),
+        prepare: () => livePage.activate(),
+        settle: () => livePage.settle?.(),
       },
     ],
   });

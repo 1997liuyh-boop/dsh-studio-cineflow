@@ -137,9 +137,14 @@ export function initVodPlayer({ state, escapeHtml, toast, playEpisode }) {
 
   function syncControls() {
     const multi = playlist().length > 1;
+    const isLive = Boolean(player().live);
     for (const name of ['cf-prev', 'cf-next']) {
       const control = art.controls[name];
-      if (control) control.style.display = multi ? '' : 'none';
+      if (!control) continue;
+      control.style.display = multi ? '' : 'none';
+      // 直播时播放列表是同组频道
+      const label = control.querySelector('.cf-art-btn');
+      if (label) label.textContent = name === 'cf-prev' ? (isLive ? '上一台' : '上一集') : (isLive ? '下一台' : '下一集');
     }
     const switchControl = art.controls['cf-switch'];
     if (switchControl) switchControl.style.display = player().vod ? '' : 'none';
