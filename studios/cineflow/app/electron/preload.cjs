@@ -112,3 +112,12 @@ contextBridge.exposeInMainWorld('cineflowUpdate', {
     return () => ipcRenderer.removeListener('update:progress', listener);
   }
 });
+
+// v0.3.0 采集站聚合搜索、片源健康度。单独 expose 一个全局，通道名必须保持单引号字面量（studio 桥接按此生成白名单）。
+contextBridge.exposeInMainWorld('cineflowVod', {
+  sources: () => ipcRenderer.invoke('vod:sources'),
+  search: (wd, sourceKeys) => ipcRenderer.invoke('vod:search', wd, Array.isArray(sourceKeys) ? sourceKeys : []),
+  detail: (sourceKey, vodId) => ipcRenderer.invoke('vod:detail', sourceKey, vodId),
+  healthList: () => ipcRenderer.invoke('health:list'),
+  healthReset: (key) => ipcRenderer.invoke('health:reset', key || '')
+});

@@ -54,56 +54,23 @@ const PLAYBACK_TRANSPORT_MODES = {
   proxy: { label: '本地代理优先', description: '始终通过本地媒体代理播放，兼容性最好。' }
 };
 
+// 内置采集站：2026-11-13 实测关键词搜索、分页与播放地址可用。
+// 失效的接口不在此处删除，由片源健康度机制自动停用。
 const RESOURCE_SOURCES = [
   ...require('./studio-sources.cjs').catalog.sources,
-  {
-    key: 'dyttzy',
-    name: '电影天堂',
-    api: 'http://caiji.dyttzyapi.com/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  },
-  {
-    key: 'ffzy',
-    name: '非凡资源',
-    api: 'http://ffzy5.tv/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  },
-  {
-    key: 'zy360',
-    name: '360资源',
-    api: 'https://360zy.com/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  },
-  {
-    key: 'zuid',
-    name: '最大资源',
-    api: 'https://api.zuidapi.com/api.php/provide/vod',
-    modes: ['movie', 'full']
-  },
-  {
-    key: 'wujin',
-    name: '无尽资源',
-    api: 'https://api.wujinapi.me/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  },
-  {
-    key: 'bfzy',
-    name: '暴风资源',
-    api: 'https://bfzyapi.com/api.php/provide/vod',
-    modes: ['full']
-  },
-  {
-    key: 'lzi',
-    name: '量子资源',
-    api: 'https://cj.lziapi.com/api.php/provide/vod',
-    modes: ['full']
-  },
-  {
-    key: 'ruyi',
-    name: '如意资源',
-    api: 'https://cj.rycjapi.com/api.php/provide/vod',
-    modes: ['stable', 'movie', 'full']
-  }
+  { key: 'dyttzy', name: '电影天堂', api: 'http://caiji.dyttzyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'ffzy', name: '非凡资源', api: 'https://cj.ffzyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'bfzy', name: '暴风资源', api: 'https://bfzyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'lzi', name: '量子资源', api: 'https://cj.lziapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'wujin', name: '无尽资源', api: 'https://api.wujinapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'zy360', name: '360资源', api: 'https://360zy5.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'zuid', name: '最大资源', api: 'https://api.zuidapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'ruyi', name: '如意资源', api: 'https://cj.rycjapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'bdzy', name: '百度云资源', api: 'https://api.apibdzy.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'xinlang', name: '新浪资源', api: 'https://api.xinlangapi.com/xinlangapi.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'jszy', name: '极速资源', api: 'https://jszyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'subo', name: '速播资源', api: 'https://subocaiji.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] },
+  { key: 'ikun', name: 'ikun资源', api: 'https://ikunzyapi.com/api.php/provide/vod', modes: ['stable', 'movie', 'full'] }
 ];
 
 let mainWindow;
@@ -1320,7 +1287,7 @@ function parseMaybeJson(text) {
   return JSON.parse(trimmed);
 }
 
-async function resourceFetchJson(source, params = {}) {
+async function resourceFetchJson(source, params = {}, options = {}) {
   const url = buildResourceUrl(source, params);
   const cacheKey = `${source.key}|${url.searchParams.toString()}`;
   const cachedPayload = getCachedResourcePayload(cacheKey);
@@ -1328,7 +1295,13 @@ async function resourceFetchJson(source, params = {}) {
 
   await applyProxySetting().catch(() => {});
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), RESOURCE_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs) || RESOURCE_TIMEOUT_MS);
+  // 外部中断（例如聚合搜索的整源死线）同步取消本次请求
+  const onExternalAbort = () => controller.abort();
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener('abort', onExternalAbort, { once: true });
+  }
   try {
     const response = await session.defaultSession.fetch(url.toString(), {
       signal: controller.signal,
@@ -1354,6 +1327,7 @@ async function resourceFetchJson(source, params = {}) {
     return payload;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener?.('abort', onExternalAbort);
   }
 }
 
@@ -2776,6 +2750,16 @@ ipcMain.handle('image:relay', async (_event, payload = {}) => {
 ipcMain.handle('resources:testWebsite', async (_event, url) => {
   await applyProxySetting().catch(() => {});
   return require('./studio-sources.cjs').testWebsite((input, options) => session.defaultSession.fetch(input, options), url);
+});
+
+// 采集站聚合搜索（vod:*）与片源健康度（health:*）
+const vodService = require('./vod-service.cjs').createVodService({
+  ipcMain,
+  fetchJson: resourceFetchJson,
+  listSources: () => getMergedResourceSources(),
+  readSettings,
+  writeSettings,
+  playbackMeta: playbackMetaForUrl
 });
 
 ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
