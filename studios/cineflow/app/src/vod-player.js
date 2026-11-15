@@ -6,6 +6,7 @@
 import Artplayer from 'artplayer';
 import { normalizeTitle } from '../electron/vod-core.mjs';
 import { createSkipMarks, decideSkip } from './skip-marks.js';
+import { installPlayerHotkeys } from './player-hotkeys.js';
 
 const PREFS_KEY = 'cineflow:player-prefs:v1';
 const NEXT_DELAY_MS = 1000;
@@ -456,6 +457,9 @@ export function initVodPlayer({ state, escapeHtml, toast, playEpisode }) {
       }
     }).observe(modal, { attributes: true, attributeFilter: ['class'] });
   }
+
+  // 播放器开着时：空格暂停 / 继续，左右方向键后退 / 快进（不必先点一下播放器）
+  installPlayerHotkeys(art, player);
 
   syncControls();
   return { art, openSourcePanel, closeSourcePanel };
